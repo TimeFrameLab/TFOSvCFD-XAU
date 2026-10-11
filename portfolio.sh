@@ -2,6 +2,9 @@
 # ============================================================
 # portfolio.sh — แสดง Portfolio จาก Bitkub wallet + ราคาล่าสุด + P/L
 # Usage: ./portfolio.sh
+# Output contract: Currency | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) |
+# ราคาล่าสุด | มูลค่า (THB) | กำไร/ขาดทุน (หักค่าธรรมเนียม) | %P/L | Remark
+# Currency coin symbols are TradingView links; THB is rendered as plain text.
 # ============================================================
 set -e
 

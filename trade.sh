@@ -7,6 +7,9 @@
 #   SELL market : ./trade.sh "SELL/BTC/L=M/100%"
 #   SELL limit  : ./trade.sh "SELL/BTC/L=2000000/100%"
 #   Balance     : ./trade.sh "MONEY"
+# CANDIDATE is a read-only report; its table schema is documented in README.md
+# and TimeFrame-OS-guidelines-and-model-vX.md and includes a live Liquidity value.
+# Trade confirmation output is separate from the CANDIDATE report table.
 # ============================================================
 set -e
 

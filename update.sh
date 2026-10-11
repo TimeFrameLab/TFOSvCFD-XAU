@@ -311,6 +311,9 @@ ws3.column_dimensions['B'].width = 80
 wb.save(OUTPUT)
 
 # --- Liquidity Check ---
+# Output contract for UPDATE and CANDIDATE tables: check the live Bitkub ticker
+# and render 🟢 HIGH / 🟡 MEDIUM / 🔴 LOW or ⚫ N/A. CANDIDATE columns (in order):
+# # | เหรียญ | Tier | ราคา (THB) | MACD Δ(W) | Entry Zone (4H) | 1H Trigger | Liquidity.
 import requests as _req
 
 def check_liquidity(aka):
