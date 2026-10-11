@@ -119,7 +119,7 @@ START
 | `UPDATE` | รัน `./update.sh` | ดาวน์โหลดข้อมูลล่าสุด + ประมวลผล MPTM + ตรวจ Liquidity |
 | `MONEY` | รัน `./trade.sh "MONEY"` | ตรวจยอดเงินบาทคงเหลือ |
 | `TARGET/COIN` | รัน `./trade.sh "TARGET/BTC"` | ตรวจยอดเหรียญ คำนวณ Target Price ตาม TIER และเสนอคำสั่ง Limit Sell (ไม่ส่งคำสั่งขาย) |
-| `PORTFOLIO` | รัน `./portfolio.sh` | แสดง Portfolio + ราคาซื้อเฉลี่ย + กำไร/ขาดทุน + %P/L + Remark (Broker Coin* / No OH*) |
+| `PORTFOLIO` | รัน `./portfolio.sh` | แสดง Portfolio + ราคาซื้อเฉลี่ย + กำไร/ขาดทุน + %P/L พร้อมราคาและปริมาณคำสั่งขาย Limit ที่ยังเปิดอยู่ |
 | `CANDIDATE` | ค้นหาใน Excel | แสดงเหรียญที่ผ่าน PRE-ENTRY-Like Pattern (6 เกณฑ์) |
 | `REVIEW` | พิมพ์ในแชท | อ่าน guideline อีกครั้งและพร้อมรับคำสั่งใหม่ |
 | `BUY/COIN/L=AMT` | รัน `./trade.sh "BUY/..."` | ส่งคำสั่งซื้อเหรียญ |
@@ -185,7 +185,7 @@ START
 
 **หลังจาก BUY สำเร็จ:**
 - เมื่อ Bitkub รับคำสั่งและส่ง Order ID กลับมา สคริปต์จะค้นหารายการซื้อที่จับคู่แล้วของ Order ID นั้นจาก `GET /api/v3/market/my-order-history` และใช้ค่าจากทุก fill ที่พบ
-- อ่าน `TIER` ของเหรียญจากแถว `AKA` ที่ตรงกันใน REF Sheet ที่กำหนดด้วย `REF_SHEET_URL` (แหล่งเดียวกับคอลัมน์ Tier ใน Portfolio) และใช้ `Source` จาก Bitkub symbols; คำนวณต้นทุนเฉลี่ยต่อเหรียญรวมค่าธรรมเนียมที่จ่ายจริง แล้วคำนวณ `Target Price = ต้นทุนเฉลี่ย × (1 + %TIER)`
+- อ่าน `TIER` ของเหรียญจากแถว `AKA` ที่ตรงกันใน REF Sheet ที่กำหนดด้วย `REF_SHEET_URL` และใช้ `Source` จาก Bitkub symbols; คำนวณต้นทุนเฉลี่ยต่อเหรียญรวมค่าธรรมเนียมที่จ่ายจริง แล้วคำนวณ `Target Price = ต้นทุนเฉลี่ย × (1 + %TIER)`
 - อัตราเป้าหมายคือ `T1=8.25%`, `T2=7.25%`, `T3=6.75%`, `T4=5.75%` และจะแสดงคำสั่ง Limit Sell `SELL/<COIN>/L=<Target Price>/100%` ตาม TIER ของเหรียญ
 - ถ้าไม่พบ fill สคริปต์ตรวจ `GET /api/v3/market/my-open-orders` ด้วย Order ID เพื่อแยกคำสั่งที่ยังรอจับคู่ หากยังเปิดอยู่จะแจ้งสถานะและไม่เสนอคำสั่งขาย
 - ถ้า Order History ไม่มีรายการหรือส่ง error code (เช่น Broker Coin ที่ตอบ error 61) แต่ BUY API ตอบ `error=0` และมี `amt`, `fee`, `cre`, `rec` ที่ยืนยันยอดซื้อจริงครบ สคริปต์คำนวณต้นทุนจากผลตอบกลับ BUY (`(amt + fee - cre) / rec`) และเสนอคำสั่งขายตาม TIER พร้อมแสดง error code ที่ได้รับ
@@ -213,7 +213,7 @@ START
 ```bash
 ./trade.sh "TARGET/BTC"
 ```
-ตรวจยอด BTC พร้อมขายจาก Bitkub v4 `wallet/balances`, อ่าน `TIER` จากแถว `AKA` ที่ตรงกันใน REF Sheet ตามคอลัมน์ `Tier` ของ Portfolio, และคำนวณต้นทุนเฉลี่ยรวมค่าธรรมเนียมจากประวัติคำสั่งซื้อ Bitkub v3 ก่อนเสนอคำสั่ง Limit Sell รูปแบบ `SELL/BTC/L=<Target Price>/100%` โดย **ไม่ส่งคำสั่งขายอัตโนมัติ**
+ตรวจยอด BTC พร้อมขายจาก Bitkub v4 `wallet/balances`, อ่าน `TIER` จากแถว `AKA` ที่ตรงกันใน REF Sheet ที่กำหนดด้วย `REF_SHEET_URL`, และคำนวณต้นทุนเฉลี่ยรวมค่าธรรมเนียมจากประวัติคำสั่งซื้อ Bitkub v3 ก่อนเสนอคำสั่ง Limit Sell รูปแบบ `SELL/BTC/L=<Target Price>/100%` โดย **ไม่ส่งคำสั่งขายอัตโนมัติ**
 
 Target Price ต้องสอดคล้องกับ `price_scale`/`price_step` ของคู่เทรดจาก Symbols API และปัดขึ้นตามขั้นราคาก่อนใช้ส่งคำสั่ง เช่น Target ของ CVC ที่คำนวณได้ `1.130357...` ให้ใช้ `1.1304 THB` (`CVC_THB`: `price_scale=4`, `price_step=0.0001`) ทั้งนี้ค่าความละเอียดขึ้นกับแต่ละคู่และอาจเปลี่ยนตามข้อมูลปัจจุบันจาก Bitkub; อย่าสมมติว่าทุกคู่ใช้ 4 หรือ 8 ตำแหน่ง
 
@@ -221,7 +221,7 @@ Target Price ต้องสอดคล้องกับ `price_scale`/`price_
 - หาก API ล้มเหลว จะแสดง HTTP status code และ Bitkub error code เพื่อแยกจากกรณีไม่มีเหรียญ
 - ถ้ามีเหรียญแต่ไม่มี Order History/ข้อมูลต้นทุนที่เชื่อถือได้ เช่น Broker Coin (error 61) หรือเหรียญโอนเข้า จะไม่เดา Target Price; แนะนำตรวจต้นทุนจากแหล่งที่มาแล้วใช้ `SELL/COIN/L=PRICE/100%` ระบุราคาเอง
 
-ผล `PORTFOLIO` แสดงคอลัมน์ `Currency | Tier | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) | ราคาล่าสุด | มูลค่า (THB) | กำไร/ขาดทุน (หักค่าธรรมเนียม) | %P/L | Remark` โดยดาวน์โหลด REF Sheet จาก `REF_SHEET_URL` ใน `.env` แล้วจับคู่ `Currency` กับคอลัมน์ `AKA` เพื่ออ่านค่า `TIER` จากชีต `All-Bitkub-BATCH`; แสดงเป็น `T1`–`T4`, หากอ่านไม่ได้ให้แสดง `N/A` พร้อมคำเตือน และแถว THB แสดง `—`.
+ผล `PORTFOLIO` แสดงคอลัมน์ `Currency | Tier | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) | ราคาล่าสุด | มูลค่า (THB) | กำไร/ขาดทุน (หักค่าธรรมเนียม) | %P/L | ราคา Limit (THB) | ปริมาณในคำสั่ง | Remark` และเรียงเหรียญตามมูลค่าพอร์ตจากมากไปน้อย. ค่า `Tier` อ่านจากคอลัมน์ `TIER` ของแถวที่ `AKA` ตรงกันในชีต `All-Bitkub-BATCH` จาก REF Sheet ที่กำหนดด้วย `REF_SHEET_URL`; หากอ่านหรือจับคู่ไม่ได้ให้แสดง `N/A`. ราคาและปริมาณมาจากคำสั่งขาย Limit ที่ยังเปิดอยู่ใน Bitkub `my-open-orders`; หากมีหลายคำสั่งให้แสดงแต่ละรายการแยกบรรทัดในลำดับเดียวกัน, หากไม่มีคำสั่งให้แสดง `—`, และหาก request ล้มเหลว, HTTP status ไม่สำเร็จ, Bitkub error code ไม่ใช่ 0 หรือ response ผิดรูปแบบ ให้แสดง `N/A` พร้อม `Open Orders N/A` และรายละเอียด status/error ใน `Remark`. แถว THB แสดง `—` ในคอลัมน์ Tier, ราคา Limit และปริมาณในคำสั่ง.
 
 ## 📁 โครงสร้างโครงการ
 

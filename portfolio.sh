@@ -3,7 +3,8 @@
 # portfolio.sh — แสดง Portfolio จาก Bitkub wallet + ราคาล่าสุด + P/L
 # Usage: ./portfolio.sh
 # Output contract: Currency | Tier | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) |
-# ราคาล่าสุด | มูลค่า (THB) | กำไร/ขาดทุน (หักค่าธรรมเนียม) | %P/L | Remark
+# ราคาล่าสุด | มูลค่า (THB) | กำไร/ขาดทุน (หักค่าธรรมเนียม) | %P/L |
+# ราคา Limit (THB) | ปริมาณในคำสั่ง | Remark
 # Currency coin symbols are TradingView links; THB is rendered as plain text.
 # ============================================================
 set -e
@@ -49,20 +50,36 @@ curl -s "$BASE_URL/api/v3/market/ticker" > "$TMPDIR_PF/tickers.json"
 # ดึง symbols source (exchange/broker)
 curl -s "$BASE_URL/api/v3/market/symbols" > "$TMPDIR_PF/symbols.json"
 
-# ดาวน์โหลด REF Sheet เพื่ออ่าน TIER โดยจับคู่ AKA กับ Currency
-REF_SHEET_INPUT="$TMPDIR_PF/reference.xlsx"
+# อ่าน TIER จาก REF Sheet แถว AKA เดียวกับที่ใช้ใน trade.sh
+echo "{}" > "$TMPDIR_PF/tiers.json"
 if [[ -n "$REF_SHEET_URL" ]]; then
-  SHEET_ID=$(echo "$REF_SHEET_URL" | sed -n 's|.*/d/\([^/]*\).*|\1|p')
-  if [[ -n "$SHEET_ID" ]] && curl -fsSL \
-    "https://docs.google.com/spreadsheets/d/$SHEET_ID/export?format=xlsx" \
-    -o "$REF_SHEET_INPUT"; then
-    :
-  else
-    echo "⚠️ ดาวน์โหลด REF Sheet จาก REF_SHEET_URL ไม่สำเร็จ; จะแสดง Tier เป็น N/A" >&2
-    rm -f "$REF_SHEET_INPUT"
+  REF_SHEET_ID=$(echo "$REF_SHEET_URL" | sed -n 's|.*/d/\([^/]*\).*|\1|p')
+  if [[ -n "$REF_SHEET_ID" ]] && curl -fsSL "https://docs.google.com/spreadsheets/d/$REF_SHEET_ID/export?format=xlsx" -o "$TMPDIR_PF/reference.xlsx"; then
+    python3 - "$TMPDIR_PF/reference.xlsx" "$TMPDIR_PF/tiers.json" <<'PYEOF'
+import json
+import re
+import sys
+import openpyxl
+
+tiers = {}
+try:
+    workbook = openpyxl.load_workbook(sys.argv[1], read_only=True, data_only=True)
+    sheet = workbook["All-Bitkub-BATCH"]
+    headers = [str(value).strip().upper() if value is not None else ""
+               for value in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))]
+    aka_col, tier_col = headers.index("AKA"), headers.index("TIER")
+    for row in sheet.iter_rows(min_row=2, values_only=True):
+        if aka_col >= len(row) or tier_col >= len(row) or row[aka_col] is None:
+            continue
+        match = re.fullmatch(r"T?([1-4])(?:\.0+)?", str(row[tier_col] or "").strip().upper())
+        if match:
+            tiers[str(row[aka_col]).strip().upper()] = "T" + match.group(1)
+except Exception:
+    pass
+with open(sys.argv[2], "w") as output:
+    json.dump(tiers, output)
+PYEOF
   fi
-else
-  echo "⚠️ ไม่พบ REF_SHEET_URL ใน .env; จะแสดง Tier เป็น N/A" >&2
 fi
 
 # หาเหรียญที่มีใน wallet (ไม่รวม THB)
@@ -120,6 +137,71 @@ with open('$TMPDIR_PF/histories.json', 'w') as f:
     json.dump(h, f)
 "
 
+  # ดึงคำสั่งที่ยังเปิดอยู่ เพื่อแสดง Limit Sell ใน Portfolio
+  TS=$(curl -s "$BASE_URL/api/v3/servertime")
+  QUERY="?sym=${SYM}"
+  SIGN=$(sign "${TS}GET/api/v3/market/my-open-orders${QUERY}")
+  if OPEN_WITH_STATUS=$(curl -sS -w $'\n%{http_code}' "$BASE_URL/api/v3/market/my-open-orders${QUERY}" \
+    -H "X-BTK-APIKEY: $API_KEY" \
+    -H "X-BTK-TIMESTAMP: $TS" \
+    -H "X-BTK-SIGN: $SIGN"); then
+    OPEN_HTTP_STATUS="${OPEN_WITH_STATUS##*$'\n'}"
+    OPEN_RESP="${OPEN_WITH_STATUS%$'\n'*}"
+  else
+    OPEN_HTTP_STATUS="unavailable"
+    OPEN_RESP=""
+  fi
+  OPEN_METADATA=$(OPEN_JSON="$OPEN_RESP" OPEN_HTTP_STATUS="$OPEN_HTTP_STATUS" python3 - <<'PYEOF'
+import json
+import os
+
+status = os.environ["OPEN_HTTP_STATUS"]
+try:
+    response = json.loads(os.environ["OPEN_JSON"])
+except json.JSONDecodeError:
+    print(json.dumps({
+        "orders": [],
+        "error": f"HTTP status code: {status}; Bitkub error code: unavailable (invalid JSON)",
+    }))
+    raise SystemExit(0)
+
+if not isinstance(response, dict):
+    error = "invalid response"
+elif not status.isdigit() or not 200 <= int(status) < 300:
+    error = response.get("error", "unavailable")
+else:
+    error = response.get("error", "unavailable")
+
+orders = response.get("result") if isinstance(response, dict) else None
+if (
+    isinstance(response, dict)
+    and status.isdigit()
+    and 200 <= int(status) < 300
+    and str(error) == "0"
+    and isinstance(orders, list)
+):
+    print(json.dumps({"orders": orders, "error": "0"}, separators=(",", ":")))
+else:
+    detail = f"HTTP status code: {status}; Bitkub error code: {error}"
+    if isinstance(response, dict) and str(error) == "0" and not isinstance(orders, list):
+        detail += " (invalid open-orders result)"
+    print(json.dumps({"orders": [], "error": detail}, separators=(",", ":")))
+PYEOF
+)
+  OPEN_METADATA="$OPEN_METADATA" COIN="$COIN" HISTORY_FILE="$TMPDIR_PF/histories.json" python3 -c '
+import json
+import os
+
+metadata = json.loads(os.environ["OPEN_METADATA"])
+with open(os.environ["HISTORY_FILE"]) as history_file:
+    histories = json.load(history_file)
+entry = histories.setdefault(os.environ["COIN"].upper(), {})
+entry["open_orders"] = metadata["orders"]
+entry["open_orders_error"] = metadata["error"]
+with open(os.environ["HISTORY_FILE"], "w") as history_file:
+    json.dump(histories, history_file)
+'
+
   # ดึง deposit history
   TS=$(curl -s "$BASE_URL/api/v3/servertime")
   QUERY="?symbol=${COIN}&limit=100"
@@ -164,7 +246,7 @@ done
 # สร้าง python script
 cat > "$TMPDIR_PF/portfolio.py" << 'PYEOF'
 import sys, json
-from zipfile import BadZipFile
+from decimal import Decimal, InvalidOperation
 from urllib.parse import quote
 
 with open(sys.argv[1]) as f:
@@ -175,46 +257,8 @@ with open(sys.argv[3]) as f:
     histories = json.load(f)
 with open(sys.argv[4]) as f:
     symbols_raw = json.load(f)
-
-tiers = {}
-try:
-    import re
-    import openpyxl
-except ImportError:
-    openpyxl = None
-
-if openpyxl is not None and len(sys.argv) > 5:
-    try:
-        workbook = openpyxl.load_workbook(sys.argv[5], read_only=True, data_only=True)
-        sheet = workbook['All-Bitkub-BATCH']
-        headers = [
-            str(value).strip().upper() if value is not None else ''
-            for value in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))
-        ]
-        coin_col = headers.index('AKA')
-        tier_col = headers.index('TIER')
-        for row in sheet.iter_rows(min_row=2, values_only=True):
-            if coin_col >= len(row) or tier_col >= len(row):
-                continue
-            coin = str(row[coin_col] or '').strip().upper()
-            tier_match = re.fullmatch(
-                r'T?([1-4])(?:\.0+)?',
-                str(row[tier_col] or '').strip().upper(),
-            )
-            if coin and tier_match:
-                tiers[coin] = f'T{tier_match.group(1)}'
-    except (
-        OSError,
-        KeyError,
-        StopIteration,
-        ValueError,
-        BadZipFile,
-        openpyxl.utils.exceptions.InvalidFileException,
-    ) as exc:
-        print(f'⚠️ อ่าน REF Sheet หรือ AKA/TIER ไม่สำเร็จ; จะแสดง Tier เป็น N/A: {exc}', file=sys.stderr)
-        tiers = {}
-elif openpyxl is None:
-    print('⚠️ openpyxl ไม่พร้อมใช้งาน; จะแสดง Tier เป็น N/A', file=sys.stderr)
+with open(sys.argv[5]) as f:
+    tiers = json.load(f)
 
 tickers = {t['symbol']: t for t in tickers_list if isinstance(t, dict)}
 sources = {s.get('symbol','').replace('_THB','').upper(): s.get('source','exchange')
@@ -295,17 +339,42 @@ for item in data:
         else:
             remark = 'No OH*'
 
+    open_orders = hist_data.get('open_orders', []) if isinstance(hist_data, dict) else []
+    open_orders_error = hist_data.get('open_orders_error', 'unavailable') if isinstance(hist_data, dict) else 'unavailable'
+    limit_sells = [
+        order for order in open_orders
+        if isinstance(order, dict)
+        and str(order.get('side', '')).lower() == 'sell'
+        and str(order.get('type', order.get('typ', ''))).lower() == 'limit'
+    ]
+    def display_order_value(value):
+        try:
+            number = Decimal(str(value))
+            if not number.is_finite():
+                return 'N/A'
+        except (InvalidOperation, TypeError, ValueError):
+            return 'N/A'
+        text = format(number, ',f')
+        return text.rstrip('0').rstrip('.') if '.' in text else text
+    limit_prices = '<br>'.join(display_order_value(order.get('rate')) for order in limit_sells) or '—'
+    limit_amounts = '<br>'.join(display_order_value(order.get('amount')) for order in limit_sells) or '—'
+    if str(open_orders_error) != '0':
+        remark = ' | '.join(filter(None, [remark, f'Open Orders N/A ({open_orders_error})']))
+    elif limit_sells:
+        remark = ' | '.join(filter(None, [remark, f'Limit Sell เปิด {len(limit_sells)} คำสั่ง']))
+        if 'N/A' in limit_prices or 'N/A' in limit_amounts:
+            remark = ' | '.join(filter(None, [remark, 'Open Orders data incomplete']))
     tier = tiers.get(cur, 'N/A')
-    rows.append((cur, tier, total, avg_price, last, value, pnl, pnl_pct, remark))
+    rows.append((cur, tier, total, avg_price, last, value, pnl, pnl_pct, limit_prices, limit_amounts, remark))
 
 rows.sort(key=lambda x: x[5], reverse=True)
 total_value = sum(r[5] for r in rows) + thb_total
 total_pnl   = sum(r[6] for r in rows if r[6] is not None)
 
 print(f'## 💼 Portfolio ({len(rows)} เหรียญ)\n')
-print(f'| Currency | Tier | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) | ราคาล่าสุด | มูลค่า (THB) | กำไร/ขาดทุน (หักค่าธรรมเนียม) | %P/L | Remark |')
-print(f'|:---|:---:|---:|---:|---:|---:|---:|---:|:---|')
-for cur, tier, total, avg_price, last, val, pnl, pnl_pct, remark in rows:
+print(f'| Currency | Tier | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) | ราคาล่าสุด | มูลค่า (THB) | กำไร/ขาดทุน (หักค่าธรรมเนียม) | %P/L | ราคา Limit (THB) | ปริมาณในคำสั่ง | Remark |')
+print(f'|:---|:---:|---:|---:|---:|---:|---:|---:|---:|---:|:---|')
+for cur, tier, total, avg_price, last, val, pnl, pnl_pct, limit_prices, limit_amounts, remark in rows:
     avg_str  = f'{avg_price:,.4f}'  if avg_price else 'N/A'
     last_str = f'{last:,.4f}'      if last > 0  else 'N/A'
     val_str  = f'{val:,.2f}'       if val  > 0  else 'N/A'
@@ -316,9 +385,9 @@ for cur, tier, total, avg_price, last, val, pnl, pnl_pct, remark in rows:
         pnl_str = 'N/A'
         pct_str = 'N/A'
     currency_cell = f'[{cur}](https://www.tradingview.com/chart/?symbol={quote(cur + "THB", safe="")})'
-    print(f'| {currency_cell} | {tier} | {total:,.4f} | {avg_str} | {last_str} | {val_str} | {pnl_str} | {pct_str} | {remark} |')
+    print(f'| {currency_cell} | {tier} | {total:,.4f} | {avg_str} | {last_str} | {val_str} | {pnl_str} | {pct_str} | {limit_prices} | {limit_amounts} | {remark or "—"} |')
 if thb_total > 0:
-    print(f'| **THB** | — | {thb_total:,.2f} | — | 1.0000 | {thb_total:,.2f} | — | — | — |')
+    print(f'| **THB** | — | {thb_total:,.2f} | — | 1.0000 | {thb_total:,.2f} | — | — | — | — | — |')
 
 pnl_sign = '+' if total_pnl >= 0 else ''
 print(f'\n**รวมมูลค่าพอร์ต: {total_value:,.2f} THB** | **กำไร/ขาดทุนรวม: {pnl_sign}{total_pnl:,.2f} THB**')
@@ -326,4 +395,4 @@ print(f'\n> \* Broker Coin = Broker coin ไม่มี Order History ใน Bi
 print(f'> \* No OH = No Order History found; may be from Airdrop/Reward or external transfer.')
 PYEOF
 
-python3 "$TMPDIR_PF/portfolio.py" "$TMPDIR_PF/balances.json" "$TMPDIR_PF/tickers.json" "$TMPDIR_PF/histories.json" "$TMPDIR_PF/symbols.json" "$REF_SHEET_INPUT"
+python3 "$TMPDIR_PF/portfolio.py" "$TMPDIR_PF/balances.json" "$TMPDIR_PF/tickers.json" "$TMPDIR_PF/histories.json" "$TMPDIR_PF/symbols.json" "$TMPDIR_PF/tiers.json"
