@@ -923,10 +923,14 @@ for x in data:
 print(0)
 " 2>/dev/null || echo "0")
 
-  QTY=$(python3 -c "
-avail = float('${AVAILABLE}')
-qty   = avail * float('${PCT}') / 100
-print(f'{qty:.2f}' if qty >= 1 else f'{qty:.8f}')
+QTY=$(python3 -c "
+from decimal import Decimal, ROUND_DOWN
+avail = Decimal('${AVAILABLE}')
+qty = avail * Decimal('${PCT}') / Decimal('100')
+places = 2 if qty >= 1 else 8
+quantum = Decimal(1).scaleb(-places)
+qty = qty.quantize(quantum, rounding=ROUND_DOWN)
+print(format(qty, 'f'))
 ")
 
   if [[ "$QTY" == "0" || "$QTY" == "0.00000000" ]]; then
