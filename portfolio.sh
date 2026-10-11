@@ -2,7 +2,7 @@
 # ============================================================
 # portfolio.sh — แสดง Portfolio จาก Bitkub wallet + ราคาล่าสุด + P/L
 # Usage: ./portfolio.sh
-# Output contract: Currency | Tier | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) |
+# Output contract: Currency | Source | Tier | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) |
 # ราคาล่าสุด | มูลค่า (THB) | กำไร/ขาดทุน (หักค่าธรรมเนียม) | %P/L |
 # ราคา Limit (THB) | ปริมาณในคำสั่ง | Remark
 # Currency coin symbols are TradingView links; THB is rendered as plain text.
@@ -50,34 +50,44 @@ curl -s "$BASE_URL/api/v3/market/ticker" > "$TMPDIR_PF/tickers.json"
 # ดึง symbols source (exchange/broker)
 curl -s "$BASE_URL/api/v3/market/symbols" > "$TMPDIR_PF/symbols.json"
 
-# อ่าน TIER จาก REF Sheet แถว AKA เดียวกับที่ใช้ใน trade.sh
-echo "{}" > "$TMPDIR_PF/tiers.json"
+# อ่าน SOURCE และ TIER จากแถว AKA เดียวกันใน REF Sheet
+echo "{}" > "$TMPDIR_PF/reference.json"
 if [[ -n "$REF_SHEET_URL" ]]; then
   REF_SHEET_ID=$(echo "$REF_SHEET_URL" | sed -n 's|.*/d/\([^/]*\).*|\1|p')
   if [[ -n "$REF_SHEET_ID" ]] && curl -fsSL "https://docs.google.com/spreadsheets/d/$REF_SHEET_ID/export?format=xlsx" -o "$TMPDIR_PF/reference.xlsx"; then
-    python3 - "$TMPDIR_PF/reference.xlsx" "$TMPDIR_PF/tiers.json" <<'PYEOF'
+    python3 - "$TMPDIR_PF/reference.xlsx" "$TMPDIR_PF/reference.json" <<'PYEOF'
 import json
 import re
 import sys
 import openpyxl
 
-tiers = {}
+reference = {}
 try:
     workbook = openpyxl.load_workbook(sys.argv[1], read_only=True, data_only=True)
     sheet = workbook["All-Bitkub-BATCH"]
     headers = [str(value).strip().upper() if value is not None else ""
                for value in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))]
-    aka_col, tier_col = headers.index("AKA"), headers.index("TIER")
+    aka_col = headers.index("AKA")
+    tier_col = headers.index("TIER")
+    source_col = headers.index("SOURCE")
     for row in sheet.iter_rows(min_row=2, values_only=True):
-        if aka_col >= len(row) or tier_col >= len(row) or row[aka_col] is None:
+        if aka_col >= len(row) or row[aka_col] is None:
+            continue
+        aka = str(row[aka_col]).strip().upper()
+        entry = reference.setdefault(aka, {})
+        if source_col < len(row) and row[source_col] is not None:
+            source = str(row[source_col]).strip()
+            if source:
+                entry["source"] = source
+        if tier_col >= len(row):
             continue
         match = re.fullmatch(r"T?([1-4])(?:\.0+)?", str(row[tier_col] or "").strip().upper())
         if match:
-            tiers[str(row[aka_col]).strip().upper()] = "T" + match.group(1)
+            entry["tier"] = "T" + match.group(1)
 except Exception:
     pass
 with open(sys.argv[2], "w") as output:
-    json.dump(tiers, output)
+    json.dump(reference, output)
 PYEOF
   fi
 fi
@@ -105,9 +115,9 @@ for COIN in $COINS; do
   while true; do
     TS=$(curl -s "$BASE_URL/api/v3/servertime")
     if [[ -z "$CURSOR" ]]; then
-      QUERY="?sym=${SYM}&lmt=100"
+      QUERY="?sym=${SYM}&lmt=100&pagination_type=keyset"
     else
-      QUERY="?sym=${SYM}&lmt=100&cursor=${CURSOR}"
+      QUERY="?sym=${SYM}&lmt=100&cursor=${CURSOR}&pagination_type=keyset"
     fi
     SIGN=$(sign "${TS}GET/api/v3/market/my-order-history${QUERY}")
     RESP=$(curl -s "$BASE_URL/api/v3/market/my-order-history${QUERY}" \
@@ -246,11 +256,11 @@ done
 # สร้าง python script
 cat > "$TMPDIR_PF/portfolio.py" << 'PYEOF'
 import sys, json
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from urllib.parse import quote
 
 with open(sys.argv[1]) as f:
-    balances_raw = json.load(f)
+    balances_raw = json.load(f, parse_float=Decimal)
 with open(sys.argv[2]) as f:
     tickers_list = json.load(f)
 with open(sys.argv[3]) as f:
@@ -258,51 +268,108 @@ with open(sys.argv[3]) as f:
 with open(sys.argv[4]) as f:
     symbols_raw = json.load(f)
 with open(sys.argv[5]) as f:
-    tiers = json.load(f)
+    reference = json.load(f)
 
 tickers = {t['symbol']: t for t in tickers_list if isinstance(t, dict)}
+symbols = symbols_raw.get('result', symbols_raw.get('data', []))
 sources = {s.get('symbol','').replace('_THB','').upper(): s.get('source','exchange')
-           for s in symbols_raw.get('result', symbols_raw.get('data', []))}
+           for s in symbols if isinstance(s, dict)}
+base_scales = {s.get('symbol','').replace('_THB','').upper(): s.get('base_asset_scale')
+               for s in symbols if isinstance(s, dict)}
 data    = balances_raw.get('data', [])
 
-def avg_buy_price(orders, total_held):
-    """คำนวณราคาซื้อเฉลี่ยทางบัญชี (รวมค่าธรรมเนียม)"""
-    buys  = []
-    sells = []
-    for o in orders:
-        if o.get('side') == 'buy' and float(o.get('rate', 0)) > 0:
-            rate = float(o['rate'])
-            amount = float(o['amount'])
-            qty = amount / rate
-            fee = float(o.get('fee', 0))
-            buys.append((rate, qty, fee))
-        elif o.get('side') == 'sell':
-            amount = float(o['amount'])
-            fee = float(o.get('fee', 0))
-            sells.append((amount, fee))
+def avg_buy_price(orders, total_held, base_asset_scale):
+    """คำนวณต้นทุนถัวเฉลี่ยของจำนวนที่ยังถืออยู่จาก matched orders."""
+    if not isinstance(orders, list) or not orders:
+        return None, 'No OH*'
+    try:
+        scale = int(base_asset_scale)
+        if scale < 0 or scale > 18:
+            raise ValueError('invalid base asset scale')
+        quantity_unit = Decimal(1).scaleb(-scale)
 
-    if not buys:
-        return None
+        events = []
+        seen_txns = set()
+        buy_fill_count = 0
+        precision_tolerance = Decimal(0)
+        for index, order in enumerate(orders):
+            if not isinstance(order, dict):
+                raise ValueError('invalid order record')
+            side = str(order.get('side', '')).lower()
+            timestamp = int(order['ts'])
+            amount = Decimal(str(order['amount']))
+            if amount <= 0:
+                raise ValueError('non-positive order amount')
+            txn_id = order.get('txn_id')
+            if txn_id is not None:
+                if txn_id in seen_txns:
+                    continue
+                seen_txns.add(txn_id)
+            if side == 'buy':
+                rate = Decimal(str(order['rate']))
+                fee = Decimal(str(order['fee']))
+                credit = Decimal(str(order['credit']))
+                if rate <= 0 or fee < 0 or credit < 0 or credit > fee:
+                    raise ValueError('invalid buy price or fee')
+                quantity = ((amount - fee + credit) / rate).quantize(
+                    quantity_unit, rounding=ROUND_DOWN
+                )
+                buy_fill_count += 1
+                quote_precision = sum(
+                    Decimal(1).scaleb(value.as_tuple().exponent) / 2
+                    for value in (amount, fee, credit)
+                    if value != 0
+                )
+                precision_tolerance += quote_precision / rate
+                cost = amount
+            elif side == 'sell':
+                quantity = amount
+                cost = Decimal(0)
+            else:
+                raise ValueError('unknown order side')
+            events.append((timestamp, index, side, quantity, cost))
 
-    total_qty   = sum(q for _, q, _ in buys)
-    total_cost  = sum(r * q + f for r, q, f in buys)  # รวมค่าธรรมเนียมซื้อในต้นทุน
-    total_sold  = sum(a for a, _ in sells)
-    total_sell_fee = sum(f for _, f in sells)  # ค่าธรรมเนียมขาย
+        quantity_held = Decimal(0)
+        cost_basis = Decimal(0)
+        known_buy_seen = False
+        matched_sell_count = 0
+        for _, _, side, quantity, cost in sorted(events, key=lambda event: (event[0], event[1])):
+            if side == 'buy':
+                known_buy_seen = True
+                quantity_held += quantity
+                cost_basis += cost
+            else:
+                if quantity > quantity_held:
+                    if known_buy_seen:
+                        raise ValueError('sell exceeds known holdings')
+                    continue
+                cost_basis -= (cost_basis / quantity_held) * quantity
+                quantity_held -= quantity
+                matched_sell_count += 1
 
-    # ถ้าขายไปบางส่วน ใช้ weighted avg ทั้งหมด
-    if total_qty <= 0:
-        return None
-
-    avg_price = total_cost / total_qty
-
-    # ส่งคืก tuple: (ราคาซื้อเฉลี่ย, ค่าธรรมเนียมขายรวม)
-    return (avg_price, total_sell_fee)
+        wallet_quantity = Decimal(str(total_held))
+        if quantity_held <= 0 or cost_basis <= 0:
+            raise ValueError('no remaining purchased holdings')
+        tolerance = (
+            quantity_unit * (buy_fill_count + 1)
+            + precision_tolerance
+        )
+        if abs(quantity_held - wallet_quantity) > tolerance:
+            difference = abs(quantity_held - wallet_quantity)
+            return None, f'Cost basis N/A (wallet/history mismatch: {difference:f})'
+        average_quantity = quantity_held if matched_sell_count else wallet_quantity
+        average_price = cost_basis / average_quantity
+        reconciled_cost_basis = average_price * wallet_quantity
+        return (float(average_price), float(reconciled_cost_basis)), None
+    except (KeyError, InvalidOperation, TypeError, ValueError, OverflowError):
+        return None, 'Cost basis N/A (invalid or incomplete order history)'
 
 rows = []
 thb_total = 0.0
 for item in data:
     cur   = str(item.get('currency', '')).upper()
-    total = float(item.get('total', 0))
+    total_raw = item.get('total', 0)
+    total = float(total_raw)
     if cur == 'THB':
         thb_total = total
         continue
@@ -317,13 +384,15 @@ for item in data:
     orders     = hist_data.get('orders', []) if isinstance(hist_data, dict) else []
     hist_error = hist_data.get('error', 0)   if isinstance(hist_data, dict) else 0
     coin_src   = sources.get(cur, 'exchange')
-    avg_result = avg_buy_price(orders, total)
+    if str(hist_error) != '0':
+        avg_result, cost_basis_error = None, f'Order History N/A (Bitkub error {hist_error})'
+    else:
+        avg_result, cost_basis_error = avg_buy_price(orders, total_raw, base_scales.get(cur))
 
-    if avg_result and avg_result[0] and avg_result[0] > 0 and last > 0:
+    if avg_result and avg_result[0] > 0 and avg_result[1] > 0 and last > 0:
         avg_price = avg_result[0]
-        total_sell_fee = avg_result[1]
-        cost_basis = avg_price * total
-        pnl        = value - cost_basis - total_sell_fee
+        cost_basis = avg_result[1]
+        pnl        = value - cost_basis
         pnl_pct    = (pnl / cost_basis) * 100
         remark     = ''
     else:
@@ -334,10 +403,8 @@ for item in data:
             remark = 'Broker Coin*'
         elif hist_error == 61:
             remark = 'Broker Coin*'
-        elif not orders:
-            remark = 'No OH*'
         else:
-            remark = 'No OH*'
+            remark = cost_basis_error or 'Cost basis N/A'
 
     open_orders = hist_data.get('open_orders', []) if isinstance(hist_data, dict) else []
     open_orders_error = hist_data.get('open_orders_error', 'unavailable') if isinstance(hist_data, dict) else 'unavailable'
@@ -364,17 +431,20 @@ for item in data:
         remark = ' | '.join(filter(None, [remark, f'Limit Sell เปิด {len(limit_sells)} คำสั่ง']))
         if 'N/A' in limit_prices or 'N/A' in limit_amounts:
             remark = ' | '.join(filter(None, [remark, 'Open Orders data incomplete']))
-    tier = tiers.get(cur, 'N/A')
-    rows.append((cur, tier, total, avg_price, last, value, pnl, pnl_pct, limit_prices, limit_amounts, remark))
+    ref_data = reference.get(cur, {})
+    source_value = str(ref_data.get('source', '')).strip()
+    source = source_value.capitalize() if source_value else 'N/A'
+    tier = ref_data.get('tier', 'N/A')
+    rows.append((cur, source, tier, total, avg_price, last, value, pnl, pnl_pct, limit_prices, limit_amounts, remark))
 
-rows.sort(key=lambda x: x[5], reverse=True)
-total_value = sum(r[5] for r in rows) + thb_total
-total_pnl   = sum(r[6] for r in rows if r[6] is not None)
+rows.sort(key=lambda x: x[6], reverse=True)
+total_value = sum(r[6] for r in rows) + thb_total
+total_pnl   = sum(r[7] for r in rows if r[7] is not None)
 
 print(f'## 💼 Portfolio ({len(rows)} เหรียญ)\n')
-print(f'| Currency | Tier | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) | ราคาล่าสุด | มูลค่า (THB) | กำไร/ขาดทุน (หักค่าธรรมเนียม) | %P/L | ราคา Limit (THB) | ปริมาณในคำสั่ง | Remark |')
-print(f'|:---|:---:|---:|---:|---:|---:|---:|---:|---:|---:|:---|')
-for cur, tier, total, avg_price, last, val, pnl, pnl_pct, limit_prices, limit_amounts, remark in rows:
+print(f'| Currency | Source | Tier | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) | ราคาล่าสุด | มูลค่า (THB) | กำไร/ขาดทุน (หักค่าธรรมเนียม) | %P/L | ราคา Limit (THB) | ปริมาณในคำสั่ง | Remark |')
+print(f'|:---|:---:|:---:|---:|---:|---:|---:|---:|---:|---:|---:|:---|')
+for cur, source, tier, total, avg_price, last, val, pnl, pnl_pct, limit_prices, limit_amounts, remark in rows:
     avg_str  = f'{avg_price:,.4f}'  if avg_price else 'N/A'
     last_str = f'{last:,.4f}'      if last > 0  else 'N/A'
     val_str  = f'{val:,.2f}'       if val  > 0  else 'N/A'
@@ -385,9 +455,9 @@ for cur, tier, total, avg_price, last, val, pnl, pnl_pct, limit_prices, limit_am
         pnl_str = 'N/A'
         pct_str = 'N/A'
     currency_cell = f'[{cur}](https://www.tradingview.com/chart/?symbol={quote(cur + "THB", safe="")})'
-    print(f'| {currency_cell} | {tier} | {total:,.4f} | {avg_str} | {last_str} | {val_str} | {pnl_str} | {pct_str} | {limit_prices} | {limit_amounts} | {remark or "—"} |')
+    print(f'| {currency_cell} | {source} | {tier} | {total:,.4f} | {avg_str} | {last_str} | {val_str} | {pnl_str} | {pct_str} | {limit_prices} | {limit_amounts} | {remark or "—"} |')
 if thb_total > 0:
-    print(f'| **THB** | — | {thb_total:,.2f} | — | 1.0000 | {thb_total:,.2f} | — | — | — | — | — |')
+    print(f'| **THB** | — | — | {thb_total:,.2f} | — | 1.0000 | {thb_total:,.2f} | — | — | — | — | — |')
 
 pnl_sign = '+' if total_pnl >= 0 else ''
 print(f'\n**รวมมูลค่าพอร์ต: {total_value:,.2f} THB** | **กำไร/ขาดทุนรวม: {pnl_sign}{total_pnl:,.2f} THB**')
@@ -395,4 +465,4 @@ print(f'\n> \* Broker Coin = Broker coin ไม่มี Order History ใน Bi
 print(f'> \* No OH = No Order History found; may be from Airdrop/Reward or external transfer.')
 PYEOF
 
-python3 "$TMPDIR_PF/portfolio.py" "$TMPDIR_PF/balances.json" "$TMPDIR_PF/tickers.json" "$TMPDIR_PF/histories.json" "$TMPDIR_PF/symbols.json" "$TMPDIR_PF/tiers.json"
+python3 "$TMPDIR_PF/portfolio.py" "$TMPDIR_PF/balances.json" "$TMPDIR_PF/tickers.json" "$TMPDIR_PF/histories.json" "$TMPDIR_PF/symbols.json" "$TMPDIR_PF/reference.json"

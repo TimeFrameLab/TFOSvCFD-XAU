@@ -420,8 +420,10 @@ for order in orders:
         raise SystemExit("❌ ข้อมูล BUY ใน Order History ไม่ครบหรือไม่ถูกต้อง; ไม่สามารถคำนวณ Target Price")
     if amount <= 0 or rate <= 0 or fee < 0 or credit < 0 or credit > fee:
         raise SystemExit("❌ พบข้อมูล amount/rate/fee/credit ที่ไม่สมเหตุสมผล; ไม่สามารถคำนวณ Target Price")
-    quantity = amount / rate
-    buys.append((quantity, amount + fee - credit))
+    quantity = (amount - fee + credit) / rate
+    if quantity <= 0:
+        raise SystemExit("❌ จำนวนเหรียญสุทธิหลังหักค่าธรรมเนียมไม่เป็นบวก; ไม่สามารถคำนวณ Target Price")
+    buys.append((quantity, amount))
 
 if not buys:
     print(f"Order History HTTP status code: {os.environ['HISTORY_HTTP_STATUS']} | Bitkub error code: {os.environ['HISTORY_API_ERROR']}")
@@ -857,8 +859,11 @@ else:
             credit = Decimal(str(fill["credit"]))
             if amount <= 0 or rate <= 0 or fee < 0 or credit < 0 or credit > fee:
                 raise ValueError("พบ amount/rate/fee/credit ที่ไม่สมเหตุสมผล")
-            total_quantity += amount / rate
-            total_cost += amount + fee - credit
+            net_quantity = (amount - fee + credit) / rate
+            if net_quantity <= 0:
+                raise ValueError("จำนวนเหรียญสุทธิหลังหักค่าธรรมเนียมไม่เป็นบวก")
+            total_quantity += net_quantity
+            total_cost += amount
     except (KeyError, InvalidOperation, TypeError, ValueError) as exc:
         print(f"⚠️ ข้อมูล Fill หรือค่าธรรมเนียมไม่ครบ/ไม่ถูกต้อง: {exc}")
         print("ไม่แสดงราคาเป้าหมายหรือคำสั่งขาย")

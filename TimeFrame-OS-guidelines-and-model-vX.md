@@ -399,11 +399,13 @@ Source      : <แหล่งข้อมูลที่ใช้ เช่น 
 
 แสดงข้อมูล Portfolio เป็น Markdown table โดยใช้หัวคอลัมน์และลำดับดังนี้:
 
-`Currency | Tier | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) | ราคาล่าสุด | มูลค่า (THB) | กำไร/ขาดทุน (หักค่าธรรมเนียม) | %P/L | ราคา Limit (THB) | ปริมาณในคำสั่ง | Remark`
+`Currency | Source | Tier | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) | ราคาล่าสุด | มูลค่า (THB) | กำไร/ขาดทุน (หักค่าธรรมเนียม) | %P/L | ราคา Limit (THB) | ปริมาณในคำสั่ง | Remark`
 
-ค่า `Currency` ของเหรียญทุกแถวต้องเป็น Markdown link ไปยัง TradingView ตามรูปแบบ `<CURRENCY>THB` เช่น `[BTC](https://www.tradingview.com/chart/?symbol=BTCTHB)`. ค่า `Tier` อ่านจากคอลัมน์ `TIER` ของแถว `AKA` ที่ตรงกันในชีต `All-Bitkub-BATCH` จาก REF Sheet ที่กำหนดด้วย `REF_SHEET_URL`; หากอ่านหรือจับคู่ไม่ได้ให้แสดง `N/A`. เรียงเหรียญตามมูลค่าพอร์ตจากมากไปน้อย. แถว THB ไม่ใช่เหรียญและไม่ต้องทำเป็นลิงก์ โดยแสดง `—` ในคอลัมน์ Tier.
+ค่า `Currency` ของเหรียญทุกแถวต้องเป็น Markdown link ไปยัง TradingView ตามรูปแบบ `<CURRENCY>THB` เช่น `[BTC](https://www.tradingview.com/chart/?symbol=BTCTHB)`. ค่า `Source` และ `Tier` อ่านจากคอลัมน์ `SOURCE` และ `TIER` ของแถว `AKA` เดียวกันในชีต `All-Bitkub-BATCH` จาก REF Sheet ที่กำหนดด้วย `REF_SHEET_URL`; หากอ่านหรือจับคู่ไม่ได้ให้แสดง `N/A`. เรียงเหรียญตามมูลค่าพอร์ตจากมากไปน้อย. แถว THB ไม่ใช่เหรียญและไม่ต้องทำเป็นลิงก์ โดยแสดง `—` ในคอลัมน์ Source และ Tier.
 
-คอลัมน์ `ราคา Limit (THB)` และ `ปริมาณในคำสั่ง` แสดงเฉพาะคำสั่ง SELL แบบ Limit ที่ยังเปิดอยู่ โดยอ่านจาก `GET /api/v3/market/my-open-orders?sym=<coin>_thb`; ใช้ค่า `rate` และ `amount` ตามที่ API ส่งกลับ. หากมีหลายคำสั่งให้แสดงแยกรายการด้วย `<br>` โดยจับคู่ลำดับราคาและปริมาณ. หากไม่มีคำสั่งเปิดให้แสดง `—`; หาก request ล้มเหลว, HTTP status ไม่สำเร็จ, Bitkub JSON `error` ไม่ใช่ 0 หรือ response ผิดรูปแบบ ให้แสดง `N/A` และเติม `Open Orders N/A` พร้อมรายละเอียด HTTP status/Bitkub error ใน `Remark`. หากข้อมูล `rate` หรือ `amount` ของคำสั่งไม่ครบให้แสดง `N/A` ในเซลล์ที่เกี่ยวข้องและเพิ่ม `Open Orders data incomplete` ใน `Remark`. `Remark` ยังคงแสดงหมายเหตุอื่น เช่น `Broker Coin*` หรือ `No OH*` และเมื่อมีคำสั่งเปิดให้เพิ่ม `Limit Sell เปิด n คำสั่ง`. แถว THB แสดง `—` ในสองคอลัมน์นี้.
+ราคาซื้อเฉลี่ยของเหรียญคงเหลือคำนวณจาก matched Order History ตามเวลาแบบถัวเฉลี่ยเคลื่อนที่: สำหรับ BUY ใน `my-order-history`, `amount` เป็นยอด THB รวมค่าธรรมเนียม; จำนวนเหรียญสุทธิต่อ fill คือ `(amount - fee + credit) / rate` (ปัดลงตาม `base_asset_scale`) และต้นทุน THB คือ `amount` โดยไม่บวก fee ซ้ำ. SELL ลดจำนวนและต้นทุนตามค่าเฉลี่ย ณ เวลาขาย. ค่าธรรมเนียม SELL ของรายการที่ปิดไปแล้วไม่นำมาหักซ้ำจาก P/L ของเหรียญที่ยังถือ. หากไม่มี SELL หลัง BUY ที่บันทึกไว้ ใช้ Wallet `total` เป็นจำนวนรับจริงสำหรับหารต้นทุน; หากมี SELL ให้ใช้ค่าเฉลี่ยของ ledger หลัง SELL แล้วปรับต้นทุนคงเหลือด้วย Wallet `total`. Reconcile โดยขอบเขตยอมรับต้องไม่เกิน dust ตาม `base_asset_scale` บวกความคลาดสูงสุดจาก precision ของ `amount`, `fee`, `credit` ที่ API ส่งต่อ fill. SELL ที่เกิดก่อน BUY แรกในช่วงประวัติเป็นการขาย inventory ก่อนช่วงประวัติ; ยอมรับได้ต่อเมื่อจำนวนปลายทาง reconcile กับ Wallet. หาก Order History ล้มเหลว/ผิดรูปแบบ, ไม่เหลือจำนวนที่ได้จาก BUY, มี SELL เกิน inventory หลังเริ่มมี BUY หรือยอดต่างเกินขอบเขต precision ให้แสดงราคาซื้อเฉลี่ยและ P/L เป็น `N/A`; ห้ามเดาต้นทุนเมื่อข้อมูลฝาก/ถอนหรือกิจกรรมอื่นทำให้ยอดอธิบายไม่ได้.
+
+คอลัมน์ `ราคา Limit (THB)` และ `ปริมาณในคำสั่ง` แสดงเฉพาะคำสั่ง SELL แบบ Limit ที่ยังเปิดอยู่ โดยอ่านจาก `GET /api/v3/market/my-open-orders?sym=<coin>_thb`; ใช้ค่า `rate` และ `amount` ตามที่ API ส่งกลับ. หากมีหลายคำสั่งให้แสดงแยกรายการด้วย `<br>` โดยจับคู่ลำดับราคาและปริมาณ. หากไม่มีคำสั่งเปิดให้แสดง `—`; หาก request ล้มเหลว, HTTP status ไม่สำเร็จ, Bitkub JSON `error` ไม่ใช่ 0 หรือ response ผิดรูปแบบ ให้แสดง `N/A` และเติม `Open Orders N/A` พร้อมรายละเอียด HTTP status/Bitkub error ใน `Remark`. หากข้อมูล `rate` หรือ `amount` ของคำสั่งไม่ครบให้แสดง `N/A` ในเซลล์ที่เกี่ยวข้องและเพิ่ม `Open Orders data incomplete` ใน `Remark`. `Remark` ยังคงแสดงหมายเหตุอื่น เช่น `Broker Coin*` หรือ `No OH*` และเมื่อมีคำสั่งเปิดให้เพิ่ม `Limit Sell เปิด n คำสั่ง`. แถว THB แสดง `—` ใน Source, Tier, ราคา Limit และปริมาณในคำสั่ง.
 
 #### คำสั่ง CANDIDATE
 
@@ -533,10 +535,10 @@ Portfolio ใช้สคริปต์แยกต่างหาก: `./portf
 
 สำหรับแต่ละ fill ในประวัติ:
 
-- มูลค่าที่ซื้อ (THB) = `amount`
-- จำนวนเหรียญที่ได้รับก่อนค่าธรรมเนียม = `amount / rate`
-- ค่าธรรมเนียมสุทธิ (THB) = `fee - credit`
-- ต้นทุนเฉลี่ยต่อเหรียญรวมค่าธรรมเนียม = `ผลรวม(amount + fee - credit) / ผลรวม(amount / rate)`
+- ยอด THB ที่จ่ายรวมค่าธรรมเนียม = `amount`
+- ค่าธรรมเนียม THB ที่ไม่ได้รับเครดิตคืน = `fee - credit`
+- จำนวนเหรียญสุทธิที่ได้รับ = `(amount - fee + credit) / rate`
+- ต้นทุนเฉลี่ยต่อเหรียญรวมค่าธรรมเนียม = `ผลรวม(amount) / ผลรวม((amount - fee + credit) / rate)`
 
 ถ้าไม่พบ fill ให้ตรวจ `GET /api/v3/market/my-open-orders` ด้วย Order ID ก่อน หากยังเปิดอยู่ให้แจ้งว่ารอจับคู่และไม่เสนอคำสั่งขาย หาก Order History ให้ error code หรือไม่มีรายการ แต่ BUY API ยืนยัน `error=0` และมีข้อมูลผลซื้อจริงครบ (`amt`, `fee`, `cre`, `rec` โดย `rec > 0`) ให้ใช้ต้นทุนเฉลี่ย `(amt + fee - cre) / rec` แสดง HTTP status code และ Bitkub error code ที่เกี่ยวข้อง แล้วเสนอคำสั่งขายตาม TIER ได้ หากไม่มีข้อมูลครบหรือ API ตรวจพบว่า order ยังเปิดอยู่ ห้ามสร้างราคา/คำสั่งขายจากราคาเสนอหรือยอดคำสั่งที่ยังไม่จับคู่ ถ้า BUY API ตอบ error ที่ไม่ใช่ 0 ให้แจ้งว่าคำสั่งซื้อไม่สำเร็จพร้อม HTTP status code และ Bitkub error code และไม่เสนอคำสั่งขาย
 
