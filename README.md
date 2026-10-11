@@ -42,21 +42,29 @@ TimeFrame OS (vX) เป็นระบบอัตโนมัติสำห�
 - 🔴 **OVEREXTENDED**: RSI(D) ≥ 70 (ห้ามไล่ราคา)
 - ⚪ **WAIT/RETEST**: โครงสร้างยังไม่พร้อม
 
+เมื่อแสดงรายงานผลในแชท ให้แสดงเหรียญในสถานะ `BUY CONFIRMED`, `EARLY/WATCH`, `PULLBACK ZONE` และ `OVEREXTENDED` เป็นตาราง โดยชื่อเหรียญเป็นลิงก์ TradingView ส่วน `WAIT/RETEST` ให้แสดงเฉพาะหัวข้อและจำนวนเหรียญ เช่น `⚪ WAIT/RETEST — 315 เหรียญ` ไม่ต้องแสดงรายชื่อหรือตาราง
+
+**หมายเหตุ:** ผลการจัดกลุ่มนี้อ้างอิงจากข้อมูล MPTM ที่อัปเดตล่าสุด ไม่ถือเป็นคำสั่งซื้อขายอัตโนมัติ โดยให้รอ 1H Trigger ตามเงื่อนไขในคู่มือก่อนพิจารณาเข้าซื้อ ทั้งนี้ สามารถติดตามการแจ้งเตือน 1H Trigger ได้ทาง Telegram: [TimeFrame CRYPTO Notify](https://t.me/TimeFrameCRYPTOnotify)
+
 ## 🚀 การติดตั้งและตั้งค่าเริ่มต้น
 
 ### 1. ข้อกำหนดเบื้องต้น (Prerequisites)
-- **macOS** หรือ Linux
-- **Python 3** พร้อม library:
+- **ระบบปฏิบัติการ**
+  - macOS หรือ Linux
+  - Windows ใช้งานได้ผ่าน **WSL2 (แนะนำ Ubuntu)** โดยต้องรันสคริปต์ในเทอร์มินัล Ubuntu; ไม่รองรับการรันไฟล์ `.sh` โดยตรงใน Command Prompt หรือ PowerShell
+- **Git** สำหรับโคลนโครงการจาก GitHub
+- **Python 3** และไลบรารีที่จำเป็น:
   ```bash
   pip3 install openpyxl requests
   ```
-- **curl** สำหรับดาวน์โหลดข้อมูล
-- **openssl** สำหรับ signing API requests
-- **Bitkub API Key** และ **API Secret** (สำหรับฟีเจอร์การซื้อขาย)
+- **curl** สำหรับดาวน์โหลดข้อมูล และ **openssl** สำหรับลงลายเซ็น API request
+- **Bitkub API Key** และ **API Secret** สำหรับฟีเจอร์ตรวจสอบพอร์ตหรือส่งคำสั่งซื้อขาย
+- สามารถใช้ AI ช่วยแนะนำการติดตั้งเครื่องมือ ตั้งค่า `.env` และแก้ปัญหาเบื้องต้นได้ โดยให้รันคำสั่งใน Terminal ที่รองรับ (บน Windows ให้ใช้ WSL2) และกรอก API Key/Secret ด้วยตนเอง **อย่าส่งข้อมูลลับให้ AI หรือเผยแพร่ในแชท**
 
 ### 2. โคลนโครงการ
 ```bash
-cd TFvX
+git clone https://github.com/TimeFrameLab/TFOSvX.git
+cd TFOSvX
 ```
 
 ### 3. ตั้งค่า Environment Variables
@@ -71,11 +79,13 @@ BITKUB_API_KEY=your_api_key_here
 BITKUB_API_SECRET=your_api_secret_here
 ```
 
-**หมายเหตุ**: หากไม่ได้ตั้งค่า `REF_SHEET_URL` ระบบจะใช้ค่า default Sheet ID
+**หมายเหตุ**: หากไม่ได้ตั้งค่า `REF_SHEET_URL` ระบบจะแสดงข้อความให้ตั้งค่า `REF_SHEET_URL` จากนั้นหยุดทำงานด้วยรหัสข้อผิดพลาด โดยไม่ดาวน์โหลดชีตหรือประมวลผลรายงาน
+
+หากต้องการสร้าง Google Sheet และ Apps Script เพื่ออัปเดตข้อมูลเหรียญสำหรับใช้งานเอง ดู [คู่มือการตั้งค่า Google Sheets](./GOOGLE-SHEETS-SETUP.md), [Apps Script ต้นแบบสำหรับเริ่มต้น](./examples/All-Bitkub-BATCH-starter.gs) หรือ [สคริปต์ MTFS ฉบับเต็มพร้อม Trigger รายชั่วโมง](./examples/All-Bitkub-MTFS.gs)
 
 ### 4. ตั้งค่า Script Permissions
 ```bash
-chmod +x update.sh trade.sh
+chmod +x update.sh trade.sh portfolio.sh
 ```
 
 ## 📖 วิธีการใช้งาน
@@ -91,7 +101,7 @@ START
 **สิ่งที่เกิดขึ้น**:
 1. ระบบจะทบทวนเนื้อหาใน `TimeFrame-OS-guidelines-and-model-vX.md`
 2. ตรวจสอบสถานะระบบและการตั้งค่า `.env`
-3. พร้อมรับคำสั่งถัดไป เช่น `UPDATE`, `MONEY`, `CANDIDATE`, หรือคำสั่งซื้อขาย
+3. พร้อมรับคำสั่งถัดไป เช่น `UPDATE`, `MONEY`, `PORTFOLIO`, `CANDIDATE`, หรือคำสั่งซื้อขาย
 
 ### คำสั่งหลักที่ใช้งาน
 
@@ -100,6 +110,7 @@ START
 | `START` | พิมพ์ในแชท | เริ่มต้นการทำงาน → REVIEW guideline → รอคำสั่งถัดไป |
 | `UPDATE` | รัน `./update.sh` | ดาวน์โหลดข้อมูลล่าสุด + ประมวลผล MPTM + ตรวจ Liquidity |
 | `MONEY` | รัน `./trade.sh "MONEY"` | ตรวจยอดเงินบาทคงเหลือ |
+| `PORTFOLIO` | รัน `./portfolio.sh` | แสดง Portfolio + ราคาซื้อเฉลี่ย + กำไร/ขาดทุน + %P/L + Remark (Broker Coin* / No OH*) |
 | `CANDIDATE` | ค้นหาใน Excel | แสดงเหรียญที่ผ่าน PRE-ENTRY-Like Pattern (6 เกณฑ์) |
 | `REVIEW` | พิมพ์ในแชท | อ่าน guideline อีกครั้งและพร้อมรับคำสั่งใหม่ |
 | `BUY/COIN/L=AMT` | รัน `./trade.sh "BUY/..."` | ส่งคำสั่งซื้อเหรียญ |
@@ -120,12 +131,19 @@ START
 5. จัดกลุ่มเหรียญตามสถานะ
 6. ตรวจสอบ Liquidity จาก Bitkub API
 7. สร้างไฟล์ Excel 3 ชีทที่ `downloads/All-Bitkub-Batch-Log-vX_output.xlsx`
-8. แสดงผลสรุปใน Terminal พร้อม LAST_CANDLE, UPDATED, Source ของเหรียญที่กำหนด
+8. แสดงผลสรุปใน Terminal พร้อม LAST_CANDLE, UPDATED, Source ของเหรียญที่กำหนด ในรูปแบบ:
+   ```
+   AKA         : <ชื่อเหรียญ> 🚀
+   LAST_CANDLE : <timestamp ของ candle ล่าสุด>
+   UPDATED     : <timestamp ที่ข้อมูลอัปเดตล่าสุด>
+   Source      : <แหล่งข้อมูลที่ใช้ เช่น exchange, broker, export>
+   ```
+   ชื่อเหรียญในทุกรายการสถานะใน Terminal และคอลัมน์ชื่อเหรียญใน `Latest Snapshot` / `Master Signal Log` คลิกเพื่อเปิดกราฟ TradingView ได้ (Terminal ต้องรองรับ OSC 8 hyperlinks) เมื่อแสดงรายงานบนแชท ให้ใช้ชื่อเหรียญเป็น Markdown link ไปยังกราฟ TradingView ทุกหมวดและทุกตาราง
 
 **🔧 การกำหนดเหรียญที่แสดงในหัวข้อ:**
 - แก้บรรทัด `TARGET_COIN = 'BTC'` ใน `update.sh` (บรรทัดที่ 56)
 - เปลี่ยนเป็นเหรียญที่ต้องการ (เช่น `'AAVE'`, `'ATOM'`, `'QNT'`)
-- ระบบจะแสดง LAST_CANDLE, UPDATED, Source ของเหรียญที่กำหนดเท่านั้น
+- ระบบจะแสดง AKA, LAST_CANDLE, UPDATED, Source ของเหรียญที่กำหนดเท่านั้น
 
 ### ตรวจยอดเงิน
 ตรวจสอบยอดเงินบาทคงเหลือในพอร์ต:
@@ -135,6 +153,8 @@ START
 ```
 
 ### ส่งคำสั่งซื้อ (BUY)
+รูปแบบคำสั่งคือ `./trade.sh "BUY/COIN/L=PRICE/AMOUNT"` โดย `PRICE` ใช้ `M` สำหรับ Market Order หรือระบุราคา Limit และ `AMOUNT` คือจำนวนเงินบาทที่ใช้ซื้อ
+
 **Market Order**:
 ```bash
 ./trade.sh "BUY/BTC/L=M/1000"
@@ -147,39 +167,49 @@ START
 ```
 *ซื้อ BTC ในราคา 2,000,000 THB มูลค่า 1,000 THB*
 
-**⚠️ การแจ้งเตือนและยืนยันกฎ MPTM:**
-- ระบบจะตรวจสอบสถานะเหรียญจาก Excel output ก่อนส่งคำสั่งซื้อ
-- ถ้าเหรียญไม่ใช่ **BUY CONFIRMED** → ระบบจะแจ้งเตือนว่าการซื้อละเมิดกฎ MPTM
-- ระบบจะแสดงคำอธิบายกฎ MPTM และขอการยืนยัน (y/n)
-- ถ้าผู้ใช้ไม่ยืนยัน → ยกเลิกคำสั่ง
-- ถ้าผู้ใช้ยืนยัน → ส่งคำสั่งซื้อ (แต่มีการแจ้งเตือนไว้แล้ว)
+**⚠️ การแจ้งเตือนและยืนยันก่อนส่งคำสั่งซื้อ:**
+- ทุกคำสั่ง BUY จะเรียก `/api/v3/market/symbols` และแสดง `Broker Coin` หรือ `Exchange Coin`; ถ้าดึงหรืออ่าน source ไม่สำเร็จ สคริปต์ใช้ `exchange` เป็นค่าเริ่มต้น
+- ถ้า source เป็น Broker จะเตือนข้อจำกัดและขอยืนยัน (y/n) ก่อน
+- ถ้ามีไฟล์ `downloads/All-Bitkub-Batch-Log-vX_output.xlsx` สคริปต์จะอ่านสถานะใน `Latest Snapshot`: ทุกสถานะจะมีการแจ้งให้ทราบและขอยืนยันก่อนซื้อ โดย `BUY_CONFIRMED` จะแสดงว่าเหรียญผ่าน MPTM; สถานะอื่น เช่น `EARLY/WATCH`, `PULLBACK ZONE`, `OVEREXTENDED`, `WAIT/RETEST` หรือ `UNKNOWN` จะแสดงคำเตือนว่าไม่ใช่ `BUY_CONFIRMED`
+- ถ้าไม่พบไฟล์ Excel, หาเหรียญไม่พบในไฟล์ (`NOT_FOUND`) หรืออ่านไฟล์/ชีทไม่ได้ (`ERROR`) สคริปต์จะแจ้งเตือนว่าไม่สามารถตรวจสอบ MPTM ได้ และถามยืนยันก่อนซื้อ
+- เมื่อต้องยืนยันแล้วผู้ใช้ตอบอย่างอื่นนอกจาก `y` หรือ `Y` สคริปต์จะยกเลิกคำสั่ง; กรณี Broker Coin และสถานะ MPTM ที่ต้องยืนยัน อาจมีคำถามยืนยันสองครั้ง
 
 ### ส่งคำสั่งขาย (SELL)
+รูปแบบคำสั่งคือ `./trade.sh "SELL/COIN/L=PRICE/PERCENT"` โดย `PERCENT` คือเปอร์เซ็นต์ของยอดเหรียญที่พร้อมใช้งานใน wallet
+
 **Market Order**:
 ```bash
 ./trade.sh "SELL/BTC/L=M/100%"
 ```
-*ขาย BTC ทั้งหมดในราคาตลาด*
+*ขาย BTC 100% ของยอดที่พร้อมใช้งานในราคาตลาด*
 
 **Limit Order**:
 ```bash
 ./trade.sh "SELL/BTC/L=2000000/100%"
 ```
-*ขาย BTC ทั้งหมดในราคา 2,000,000 THB*
+*ขาย BTC 100% ของยอดที่พร้อมใช้งาน ในราคา 2,000,000 THB*
 
 ## 📁 โครงสร้างโครงการ
 
 ```
-TFvX/
-├── .env                                    ← Environment variables
-├── .gitignore                              ← Git ignore rules
-├── update.sh                               ← Main update script
-├── trade.sh                                ← Trading command script
-├── README.md                               ← เอกสารนี้
-├── TimeFrame-OS-guidelines-and-model-vX.md ← เอกสารแนวทาง MPTM แบบละเอียด
-├── downloads/                              ← โฟลเดอร์สำหรับไฟล์ดาวน์โหลด
-│   └── All-Bitkub-Batch-Log-vX_output.xlsx ← รายงาน Excel output
-└── TFvX/                                   ← Sub-repository (ถ้ามี)
+TFOSvX/
+├── .env.example                              ← แม่แบบตัวแปรสภาพแวดล้อม
+├── .env                                      ← ค่าของผู้ใช้ในเครื่อง (ไม่ติดตามโดย Git)
+├── .gitignore                                ← กฎละเว้นไฟล์และโฟลเดอร์
+├── update.sh                                 ← ดาวน์โหลดข้อมูลและประมวลผลรายงาน
+├── trade.sh                                  ← ตรวจยอดเงินและส่งคำสั่งซื้อขาย
+├── portfolio.sh                              ← แสดง Portfolio และ P/L
+├── README.md                                 ← คู่มือหลักของโครงการ
+├── GOOGLE-SHEETS-SETUP.md                   ← คู่มือตั้งค่า Google Sheets
+├── TimeFrame-OS-guidelines-and-model-vX.md   ← แนวทาง MPTM แบบละเอียด
+├── TFOSvX.code-workspace                    ← การตั้งค่า VS Code Workspace
+├── LICENSE                                   ← สัญญาอนุญาต
+├── examples/
+│   ├── All-Bitkub-BATCH-starter.gs           ← ตัวช่วยสร้างหัวตารางและเขียนข้อมูล
+│   └── All-Bitkub-MTFS.gs                    ← สคริปต์ MTFS เต็ม: ดึงข้อมูลและอัปเดตทุก 1 ชั่วโมง
+└── downloads/                                ← ไฟล์ที่สร้างระหว่างใช้งาน (ไม่ติดตามโดย Git)
+    ├── All-Bitkub-Batch-Log-vX.xlsx          ← ข้อมูลที่ดาวน์โหลดจาก Reference Sheet
+    └── All-Bitkub-Batch-Log-vX_output.xlsx   ← รายงาน Excel ที่ประมวลผลแล้ว
 ```
 
 ## 🧠 เกณฑ์ MPTM (สรุป)
@@ -226,7 +256,7 @@ TFvX/
               ↓
 3. ตรวจสอบสถานะ → BUY CONFIRMED / EARLY/WATCH / PULLBACK / WAIT
               ↓
-4. ดำเนินการ → MONEY / CANDIDATE / BUY / SELL
+4. ดำเนินการ → MONEY / PORTFOLIO / CANDIDATE / BUY / SELL
               ↓
 5. REVIEW → ทบทวน guideline และเริ่มรอบใหม่
 ```
@@ -245,7 +275,7 @@ pip3 install openpyxl requests
 ### ข้อผิดพลาด: Permission denied สำหรับ script
 **วิธีแก้**: ตั้งค่า execute permission:
 ```bash
-chmod +x update.sh trade.sh
+chmod +x update.sh trade.sh portfolio.sh
 ```
 
 ### ข้อผิดพลาด: Sheet ID ไม่ถูกต้อง
@@ -268,5 +298,5 @@ https://docs.google.com/spreadsheets/d/[SHEET_ID]/edit?usp=sharing
 ---
 
 **เวอร์ชัน**: vX  
-**อัปเดตล่าสุด**: 09/10/2026  
+**อัปเดตล่าสุด**: 11/10/2026
 **สร้างด้วย ❤️ สำหรับการวิเคราะห์คริปโตเคอร์เรนซีที่มีวินัย**

@@ -43,9 +43,11 @@ echo "✅ Downloaded: $INPUT"
 echo "⚙️  Processing MPTM signals..."
 python3 << 'PYEOF'
 import openpyxl, re
+from copy import copy
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from datetime import datetime
+from urllib.parse import quote
 import os
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -54,6 +56,22 @@ OUTPUT = os.path.join(SCRIPT_DIR, "downloads", "All-Bitkub-Batch-Log-vX_output.x
 
 # กำหนดเหรียญที่ต้องการแสดง LAST_CANDLE, UPDATED, Source
 TARGET_COIN = 'BTC'  # เปลี่ยนเป็นเหรียญที่ต้องการ (เช่น 'AAVE', 'ATOM', 'QNT')
+
+def tradingview_url(aka):
+    symbol = quote(f'{aka}THB', safe='')
+    return f'https://www.tradingview.com/chart/?symbol={symbol}'
+
+def terminal_link(aka):
+    label = re.sub(r'[\x00-\x1f\x7f]', '', str(aka))
+    url = tradingview_url(label)
+    return f'\033]8;;{url}\033\\{label}\033]8;;\033\\'
+
+def set_coin_link(cell, aka):
+    cell.hyperlink = tradingview_url(aka)
+    font = copy(cell.font)
+    font.color = '0563C1'
+    font.underline = 'single'
+    cell.font = font
 
 wb_src = openpyxl.load_workbook(INPUT)
 ws_src = wb_src['All-Bitkub-BATCH']
@@ -209,7 +227,7 @@ set_header(ws1, 2, snap_headers)
 r = 3
 for d in snap_rows:
     aka    = d['AKA']
-    url    = d.get('URL') or f'https://www.tradingview.com/chart/?symbol={aka}THB'
+    url    = tradingview_url(aka)
     bk_url = f'https://www.bitkub.com/market/{aka}'
     write_row(ws1, r, [
         now_str, now_time, aka,
@@ -221,6 +239,8 @@ for d in snap_rows:
         f'=HYPERLINK("{url}","{url}")',
         f'=HYPERLINK("{bk_url}","{bk_url}")',
     ], STATUS_FILL.get(d['STATUS']))
+    coin_cell = ws1.cell(row=r, column=3)
+    set_coin_link(coin_cell, aka)
     r += 1
 
 for i, w in enumerate([12,10,10,10,6,10,18,18,10,16,18,12,55,50,40], 1):
@@ -250,13 +270,15 @@ r2 = 3
 for old_row in old_rows:
     for c, val in enumerate(old_row, 1):
         ws2.cell(row=r2, column=c, value=val).border = BORDER
+    if len(old_row) >= 3 and old_row[2]:
+        set_coin_link(ws2.cell(row=r2, column=3), old_row[2])
     r2 += 1
 
 status_label = {'BUY_CONFIRMED':'🟢 พร้อมซื้อ','EARLY_WATCH':'🟡 เฝ้าระวัง',
                 'OVEREXTENDED':'🔴 Overextended','PULLBACK_ZONE':'🟠 Pullback Zone','WAIT_RETEST':'⚪ รอสร้างฐาน'}
 for d in snap_rows:
     aka    = d['AKA']
-    url    = d.get('URL') or f'https://www.tradingview.com/chart/?symbol={aka}THB'
+    url    = tradingview_url(aka)
     bk_url = f'https://www.bitkub.com/market/{aka}'
     write_row(ws2, r2, [
         now_str, now_time, aka,
@@ -268,6 +290,8 @@ for d in snap_rows:
         f'=HYPERLINK("{url}","{url}")',
         f'=HYPERLINK("{bk_url}","{bk_url}")',
     ], STATUS_FILL.get(d['STATUS']))
+    coin_cell = ws2.cell(row=r2, column=3)
+    set_coin_link(coin_cell, aka)
     r2 += 1
 
 for i, w in enumerate([12,10,10,10,6,10,18,18,10,16,18,12,16,55,50,40], 1):
@@ -314,36 +338,40 @@ print(f"LAST_CANDLE : {last_candle}")
 print(f"UPDATED     : {updated}")
 print(f"Source      : {source}")
 print(f"")
-print(f"🟢 BUY CONFIRMED : {len(buy_confirmed)}")
-print(f"🟡 EARLY/WATCH   : {len(early_watch)}")
-print(f"🟠 PULLBACK ZONE : {len(pullback_zone)}")
-print(f"🔴 OVEREXTENDED  : {len(overextended)}")
-print(f"⚪ WAIT/RETEST   : {len(wait_retest)}")
-print(f"")
+print(f"🟢 BUY CONFIRMED — {len(buy_confirmed)} เหรียญ")
+print("| เหรียญ | Tier | Source | RSI(W) | RSI(D) | MACD_D | ราคา | Liquidity |")
+print("|---|---|---|---:|---:|---:|---:|---|")
+
+def format_price(value):
+    try: return f"{float(value):,.4f}"
+    except: return str(value or '')
+
+def tv_markdown_link(aka):
+    label = re.sub(r'[^A-Za-z0-9._-]', '', str(aka))
+    return f"[{label}]({tradingview_url(label)})"
+
+def print_signal_table(coins):
+    for d in coins:
+        liq, _, _ = check_liquidity(d['AKA'])
+        print(f"| {tv_markdown_link(d['AKA'])} | {d.get('TIER','')} | {d.get('Source','')} | {d.get('RSI(W)','')} | {d.get('RSI(D)','')} | {d.get('MACD_HIST_DELTA(W)','')} | {format_price(d.get('PRICE'))} | {liq} |")
+
 if buy_confirmed:
-    print("=== 🟢 BUY CONFIRMED ===")
-    for d in buy_confirmed:
-        price = d.get('PRICE','')
-        try: price = f"{float(price):,.4f}"
-        except: pass
-        liq, vol, spd = check_liquidity(d['AKA'])
-        print(f"  {d['AKA']:10} | TIER:{d['TIER']} | SOURCE:{d.get('Source','')} | RSI_W:{d['RSI(W)']} | RSI_D:{d['RSI(D)']} | MACD_D:{d['MACD_HIST_DELTA(W)']} | PRICE:{price}")
-        print(f"    LIQUIDITY: {liq} | Vol24h:{vol:,.0f} THB | Spread:{spd:.2f}%")
+    print_signal_table(buy_confirmed)
+else:
+    print("| — | — | — | — | — | — | — | — |")
+
 print("")
-print("=== 🟡 EARLY/WATCH TOP 10 ===")
-for d in early_watch[:10]:
-    price = d.get('PRICE','')
-    try: price = f"{float(price):,.4f}"
-    except: pass
-    liq, vol, spd = check_liquidity(d['AKA'])
-    print(f"  {d['AKA']:10} | TIER:{d['TIER']} | SOURCE:{d.get('Source','')} | RSI_W:{d['RSI(W)']} | RSI_D:{d['RSI(D)']} | MACD_D:{d['MACD_HIST_DELTA(W)']} | PRICE:{price}")
-    print(f"    LIQUIDITY: {liq} | Vol24h:{vol:,.0f} THB | Spread:{spd:.2f}%")
+print(f"🟡 EARLY/WATCH — {len(early_watch)} เหรียญ (TOP 10)")
+print("| เหรียญ | Tier | Source | RSI(W) | RSI(D) | MACD_D | ราคา | Liquidity |")
+print("|---|---|---|---:|---:|---:|---:|---|")
+print_signal_table(early_watch[:10])
+
 print("")
-print("=== 🟠 PULLBACK ZONE TOP 10 (W/4H/1H=UP, RSI 1H < 50) ===")
+print(f"🟠 PULLBACK ZONE — {len(pullback_zone)} เหรียญ (TOP 10)")
+print("| เหรียญ | Tier | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity |")
+print("|---|---|---:|---:|---:|---|---|---|---|")
 for d in pullback_zone[:10]:
-    price = d.get('PRICE','')
-    try: price = f"{float(price):,.4f}"
-    except: pass
+    price = format_price(d.get('PRICE'))
     vw  = '🟢' if 'BUY' in str(d.get('SIGNAL_VOLUME(W)','')).upper()  else '⚪'
     vd  = '🟢' if 'BUY' in str(d.get('SIGNAL_VOLUME(D)','')).upper()  else '⚪'
     v4h = '🟢' if 'BUY' in str(d.get('SIGNAL_VOLUME(4H)','')).upper() else '⚪'
@@ -357,11 +385,15 @@ for d in pullback_zone[:10]:
     cmb = ['✅' if v=='🟢' and t=='🟢' else '❌' for v,t in zip([vw,vd,v4h,v1h],[tw,td,t4h,t1h])]
     cmb_score = sum(1 for c in cmb if c == '✅')
     liq, vol, spd = check_liquidity(d['AKA'])
-    print(f"  {d['AKA']:10} | TIER:{d['TIER']} | SOURCE:{d.get('Source','')} | RSI_W:{d['RSI(W)']} | RSI_1H:{d['RSI(1H)']} | PRICE:{price}")
-    print(f"    VOL   W/D/4H/1H: {vw}{vd}{v4h}{v1h} ({vol_score}/4)")
-    print(f"    TREND W/D/4H/1H: {tw}{td}{t4h}{t1h} ({trend_score}/4)")
-    print(f"    CMB   W/D/4H/1H: {''.join(cmb)} ({cmb_score}/4)")
-    print(f"    LIQUIDITY: {liq} | Vol24h:{vol:,.0f} THB | Spread:{spd:.2f}%")
+    print(f"| {tv_markdown_link(d['AKA'])} | {d.get('TIER','')} | {d.get('RSI(W)','')} | {d.get('RSI(1H)','')} | {price} | {vw}{vd}{v4h}{v1h} ({vol_score}/4) | {tw}{td}{t4h}{t1h} ({trend_score}/4) | {''.join(cmb)} ({cmb_score}/4) | {liq} |")
+
+print("")
+print(f"🔴 OVEREXTENDED — {len(overextended)} เหรียญ")
+if overextended:
+    print(" · ".join(tv_markdown_link(d['AKA']) for d in overextended))
+else:
+    print("ไม่มีเหรียญในสถานะนี้")
+print(f"⚪ WAIT/RETEST — {len(wait_retest)} เหรียญ")
 print(f"")
 print(f"✅ Saved: {OUTPUT}")
 PYEOF

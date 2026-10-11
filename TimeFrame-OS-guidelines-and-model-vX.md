@@ -16,7 +16,7 @@ REF_SHEET_URL=<Reference Sheet URL ของคุณ>
 - script `update.sh` จะโหลดค่า `REF_SHEET_URL` จาก `.env` อัตโนมัติ
 - ดึง Sheet ID จาก URL (extract จาก pattern `/d/[SHEET_ID]`)
 - ใช้ Sheet ID นี้ในการดาวน์โหลดข้อมูลจาก Reference Sheet (REF Sheet)
-- หากไม่ได้ตั้งค่า จะใช้ค่า default Sheet ID
+- หากไม่ได้ตั้งค่า `REF_SHEET_URL` จะแสดงข้อความให้ตั้งค่าและหยุดทำงานด้วยรหัสข้อผิดพลาด โดยไม่ดาวน์โหลดชีตหรือประมวลผลรายงาน
 
 **โครงสร้างไฟล์:**
 ```
@@ -24,6 +24,7 @@ MPTM/
 ├── .env                    ← เก็บ REF_SHEET_URL, BITKUB_API_KEY, BITKUB_API_SECRET
 ├── update.sh               ← โหลด .env → ดึง Sheet ID → ดาวน์โหลดข้อมูล
 ├── trade.sh                ← โหลด .env → ใช้ API Key ส่งคำสั่งซื้อขาย
+├── portfolio.sh            ← script แสดง Portfolio + ราคาซื้อเฉลี่ย + P/L + Remark (Broker Coin* / No OH*)
 └── TimeFrame-OS-guidelines-and-model-vX.md  ← เอกสารแนวทางนี้
 ```
 
@@ -61,6 +62,7 @@ MPTM/
 ┌─────────────────────────────────────────────────────────┐
 │ 5. คำสั่งเพิ่มเติม                                    │
 │    MONEY → ตรวจยอดเงิน                               │
+│    PORTFOLIO → แสดง Portfolio + ราคาซื้อเฉลี่ย + P/L + Remark                         │
 │    CANDIDATE → แสดง PRE-ENTRY-Like Pattern CANDIDATE   │
 │    REVIEW → อ่าน guideline อีกครั้ง                  │
 │    BUY/SELL → ส่งคำสั่งซื้อขาย                       │
@@ -74,6 +76,7 @@ MPTM/
 | `START` | พิมพ์ในแชท | เริ่มต้นการทำงาน → REVIEW guideline → รอคำสั่งถัดไป |
 | `UPDATE` | รัน `./update.sh` | ดาวน์โหลดข้อมูลล่าสุด + ประมวลผล MPTM + ตรวจ Liquidity |
 | `MONEY` | รัน `./trade.sh "MONEY"` | ตรวจยอดเงินบาทคงเหลือ |
+| `PORTFOLIO` | รัน `./portfolio.sh` | แสดง Portfolio + ราคาซื้อเฉลี่ย + กำไร/ขาดทุน + %P/L + Remark (Broker Coin* / No OH*) |
 | `CANDIDATE` | ค้นหาใน Excel | แสดงเหรียญที่ผ่าน PRE-ENTRY-Like Pattern (6 เกณฑ์) |
 | `REVIEW` | พิมพ์ในแชท | อ่าน guideline อีกครั้งและพร้อมรับคำสั่งใหม่ |
 | `BUY/COIN/L=AMT` | รัน `./trade.sh "BUY/..."` | ส่งคำสั่งซื้อเหรียญ |
@@ -85,13 +88,13 @@ MPTM/
 
 1. **REVIEW Guideline**: อ่านและทบทวนเนื้อหาใน `TimeFrame-OS-guidelines-and-model-vX.md`
 2. **ตรวจสอบสถานะระบบ**: ยืนยันว่าไฟล์ `.env` ได้รับการตั้งค่าเรียบร้อย
-3. **พร้อมรับคำสั่ง**: รอรับคำสั่งถัดไปจากผู้ใช้ เช่น `UPDATE`, `MONEY`, `CANDIDATE`, หรือคำสั่งซื้อขาย
+3. **พร้อมรับคำสั่ง**: รอรับคำสั่งถัดไปจากผู้ใช้ เช่น `UPDATE`, `MONEY`, `PORTFOLIO`, `CANDIDATE`, หรือคำสั่งซื้อขาย
 
 **ตัวอย่างการใช้งาน**:
 ```
 ผู้ใช้: START
 ระบบ: กำลังทบทวน TimeFrame-OS-guidelines-and-model-vX.md...
-ระบบ: ✅ พร้อมรับคำสั่ง (UPDATE / MONEY / CANDIDATE / BUY / SELL)
+ระบบ: ✅ พร้อมรับคำสั่ง (UPDATE / MONEY / PORTFOLIO / CANDIDATE / BUY / SELL)
 ```
 
 ### 1. ปรัชญาและหลักการวิเคราะห์คัดกรอง (Core Decision Framework)
@@ -100,9 +103,11 @@ MPTM/
 
 ### 2. สภาพแวดล้อมและการจัดการข้อมูล Excel (`All-Bitkub-Batch-Log-vX.xlsx`)
 ทุกครั้งที่มีการร้องขอคำสั่งอัปเดต ระบบจะดึงข้อมูลสดใหม่จากแหล่งข้อมูล `🐋 All-Bitkub - All-Bitkub-BATCH` และสร้าง/อัปเดตไฟล์ Excel เวอร์ชันใหม่ โดยมีโครงสร้าง 3 ชีทดังนี้:
-* **ชีทที่ 1: `Latest Snapshot` (วางไว้หน้าแรกสุด)**: สรุปเฉพาะสัญญาณรอบล่าสุดเพียงอย่างเดียว พร้อมคอลัมน์คำแนะนำ จุดเข้าซื้อ และลิงก์กราฟ TradingView / Bitkub
-* **ชีทที่ 2: `Master Signal Log`**: บันทึกประวัติสะสมทั้งหมดแบบ Append-Only (รักษาประวัติรอบก่อนหน้าทั้งหมด + นำสัญญาณรอบล่าสุดมาบันทึกต่อท้าย)
+* **ชีทที่ 1: `Latest Snapshot` (วางไว้หน้าแรกสุด)**: สรุปเฉพาะสัญญาณรอบล่าสุดเพียงอย่างเดียว พร้อมคอลัมน์คำแนะนำ จุดเข้าซื้อ และลิงก์กราฟ TradingView / Bitkub; ชื่อเหรียญคลิกเพื่อเปิดกราฟ TradingView ได้
+* **ชีทที่ 2: `Master Signal Log`**: บันทึกประวัติสะสมทั้งหมดแบบ Append-Only (รักษาประวัติรอบก่อนหน้าทั้งหมด + นำสัญญาณรอบล่าสุดมาบันทึกต่อท้าย); ชื่อเหรียญของรายการใหม่คลิกเพื่อเปิดกราฟ TradingView ได้
 * **ชีทที่ 3: `REF.`**: เก็บรักษาสภาพลิงก์อ้างอิง Reference Sheet (REF Sheet) ต้นทางตามโครงสร้างเดิม
+
+ชื่อเหรียญในทุกรายการสถานะของ Terminal คลิกเพื่อเปิดกราฟ TradingView ได้เมื่อใช้ Terminal ที่รองรับ OSC 8 hyperlinks เช่น VS Code Terminal รุ่นที่รองรับ โดยรวมถึงรายการ `OVEREXTENDED` และ `WAIT/RETEST`
 
 ### 3. กรอบการตัดสินใจและการจำแนกสถานะ (Action Classification)
 ระบบจำแนกสถานะเหรียญใน Snapshot ออกเป็น 3 กลุ่มหลัก:
@@ -354,22 +359,56 @@ curl -L "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/export?format=xlsx
 
 ทุกครั้งที่สอบถามหรือวิเคราะห์เกี่ยวกับเหรียญ ให้ตอบในรูปแบบที่บังคับดังนี้เสมอ:
 
-- LAST_CANDLE: <timestamp ของ candle ล่าสุด>
-- UPDATED: <timestamp ที่ข้อมูลอัปเดตล่าสุด>
-- Source: <แหล่งข้อมูลที่ใช้ เช่น exchange, Reference Sheet (REF Sheet), export>
+```
+AKA         : <ชื่อเหรียญ> 🚀
+LAST_CANDLE : <timestamp ของ candle ล่าสุด>
+UPDATED     : <timestamp ที่ข้อมูลอัปเดตล่าสุด>
+Source      : <แหล่งข้อมูลที่ใช้ เช่น exchange, broker, export>
+```
 
 ### กฎการตอบ:
-* ต้องระบุข้อมูล 3 อย่างนี้เป็นบรรทัดแรกสุดของสรุปทุกครั้ง
+* ต้องระบุข้อมูล 4 อย่างนี้เป็นบรรทัดแรกสุดของสรุปทุกครั้ง
 * ต้องยึดตามข้อมูลจริงจาก Sheet / Workbook ที่เพิ่งดาวน์โหลดมาใหม่ล่าสุด
 * ไม่ใช้ข้อมูลเก่าหรือแคชจากรอบก่อน
 * ถ้าไม่สามารถระบุค่าจริงได้ ให้ระบุว่า “ข้อมูลไม่พร้อม / ไม่พบใน Snapshot” และหยุดก่อนวิเคราะห์ต่อ
+* เมื่อแสดงรายงานเหรียญในแชท ให้ชื่อเหรียญในทุกหมวดและทุกตารางเป็น Markdown link ไปยัง `https://www.tradingview.com/chart/?symbol=<AKA>THB` เช่น `[L3](https://www.tradingview.com/chart/?symbol=L3THB)`
+* รูปแบบคอลัมน์ของผล `UPDATE` และ `PORTFOLIO` ให้ใช้ตามข้อกำหนดในหัวข้อ [คอลัมน์ผลลัพธ์ UPDATE และ PORTFOLIO](#คอลัมน์ผลลัพธ์-update-และ-portfolio) โดยแสดงตาราง Markdown เพื่อให้ทั้งผู้ใช้และ AI อ่านหัวคอลัมน์กับข้อมูลในแต่ละแถวได้ชัดเจน
+* สำหรับ `OVEREXTENDED` ให้แสดงจำนวนเหรียญและรายชื่อเป็น TradingView links; สำหรับ `WAIT/RETEST` ให้แสดงเฉพาะหัวข้อกับจำนวน ไม่ต้องแสดงรายชื่อหรือตาราง
+* ท้ายรายงานผลการจัดกลุ่ม ให้แสดงหมายเหตุว่า “ผลการจัดกลุ่มนี้อ้างอิงจากข้อมูล MPTM ที่อัปเดตล่าสุด ไม่ถือเป็นคำสั่งซื้อขายอัตโนมัติ โดยให้รอ 1H Trigger ตามเงื่อนไขในคู่มือก่อนพิจารณาเข้าซื้อ ทั้งนี้ สามารถติดตามการแจ้งเตือน 1H Trigger ได้ทาง Telegram: [TimeFrame CRYPTO Notify](https://t.me/TimeFrameCRYPTOnotify)”
+
+### คอลัมน์ผลลัพธ์ UPDATE และ PORTFOLIO
+
+ทุกหัวข้อและคอลัมน์ด้านล่างเป็นรูปแบบมาตรฐานที่ต้องคงชื่อและลำดับไว้ ห้ามรวมหลายคอลัมน์ไว้ในบรรทัดเดียวหรือใช้ป้ายกำกับแทนหัวตาราง
+
+#### คำสั่ง UPDATE
+
+แสดง `AKA`, `LAST_CANDLE`, `UPDATED` และ `Source` ก่อนรายงานสถานะ จากนั้นแสดงแต่ละกลุ่มตามรูปแบบนี้:
+
+1. `🟢 BUY CONFIRMED — n เหรียญ` — แสดงทุกเหรียญใน Markdown table โดยเรียงคอลัมน์: `เหรียญ | Tier | Source | RSI(W) | RSI(D) | MACD_D | ราคา | Liquidity`
+2. `🟡 EARLY/WATCH — n เหรียญ (TOP 10)` — แสดงไม่เกิน 10 เหรียญ เรียงตาม MACD Delta (W) จากมากไปน้อย และใช้คอลัมน์: `เหรียญ | Tier | Source | RSI(W) | RSI(D) | MACD_D | ราคา | Liquidity`
+3. `🟠 PULLBACK ZONE — n เหรียญ (TOP 10)` — แสดงไม่เกิน 10 เหรียญ เรียงตาม Combined Score จากมากไปน้อย และใช้คอลัมน์: `เหรียญ | Tier | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity`
+4. `🔴 OVEREXTENDED — n เหรียญ` — แสดงชื่อเหรียญเป็น TradingView link
+5. `⚪ WAIT/RETEST — n เหรียญ` — แสดงเฉพาะหัวข้อกับจำนวน ไม่ต้องแสดงรายชื่อหรือตาราง
+
+ชื่อเหรียญในตารางและรายชื่อ `OVEREXTENDED` ต้องเป็น Markdown link ไปยัง TradingView ตัวอย่าง: `[BTC](https://www.tradingview.com/chart/?symbol=BTCTHB)`. ค่า Liquidity ต้องเป็นผลจากการตรวจตลาดล่าสุด และแสดงระดับ `🟢 HIGH`, `🟡 MEDIUM`, `🔴 LOW` หรือ `⚫ N/A`.
+
+#### คำสั่ง PORTFOLIO
+
+แสดงข้อมูล Portfolio เป็น Markdown table โดยใช้หัวคอลัมน์และลำดับดังนี้:
+
+`Currency | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) | ราคาล่าสุด | มูลค่า (THB) | กำไร/ขาดทุน (หักค่าธรรมเนียม) | %P/L | Remark`
+
+ค่า `Currency` ของเหรียญทุกแถวต้องเป็น Markdown link ไปยัง TradingView ตามรูปแบบ `<CURRENCY>THB` เช่น `[BTC](https://www.tradingview.com/chart/?symbol=BTCTHB)`. แถว THB ไม่ใช่เหรียญและไม่ต้องทำเป็นลิงก์
 
 ### ตัวอย่างรูปแบบคำตอบ:
-> LAST_CANDLE: 07/10/2026 23:00
-> UPDATED: 07/10/2026 23:07
-> Source: exchange
->
-> สรุป: ATOM ยังไม่ผ่าน MPTM เนื่องจาก Trend(W)=DOWN, EMA9 < EMA21, MACD_HIST_DELTA < 0, ENTRY_TRIGGER(1H)=WAIT
+```
+AKA         : ATOM 🚀
+LAST_CANDLE : 07/10/2026 23:00
+UPDATED     : 07/10/2026 23:07
+Source      : exchange
+```
+
+สรุป: ATOM ยังไม่ผ่าน MPTM เนื่องจาก Trend(W)=DOWN, EMA9 < EMA21, MACD_HIST_DELTA < 0, ENTRY_TRIGGER(1H)=WAIT
 
 ### บทบาทของรูปแบบนี้:
 * ทำให้ทุกคำตอบมี traceability และความชัดเจน
@@ -380,7 +419,7 @@ curl -L "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/export?format=xlsx
 
 ### Version Note
 * เอกสารนี้เป็นเวอร์ชันนำเสนอและสิ่งที่ถูกบันทึกไว้ที่นี่ใช้เป็น Standard Response Format สำหรับการวิเคราะห์เหรียญต่อเนื่อง
-* Changelog สำหรับรูปแบบคำตอบล่าสุด: เพิ่มบังคับให้ทุกคำตอบใส่ `LAST_CANDLE`, `UPDATED`, `Source`
+* Changelog สำหรับรูปแบบคำตอบล่าสุด: เพิ่มบังคับให้ทุกคำตอบใส่ `AKA`, `LAST_CANDLE`, `UPDATED`, `Source`
 
 **09/10/2026 - เพิ่มคู่มือการทำงานและตั้งค่า .env**
 - เพิ่ม Part 1.0: การตั้งค่าเริ่มต้น
@@ -434,38 +473,56 @@ BITKUB_API_SECRET=your_api_secret_here
 * API ใช้ Bitkub REST v3 (`place-bid` / `place-ask`) + v4 (`wallet/balances`)
 * Signature: HMAC SHA-256 format `{timestamp}{METHOD}{path}{body}`
 
-### 4 คำสั่งที่รองรับ
+### คำสั่ง `trade.sh` ที่รองรับ
 
 | คำสั่ง | ความหมาย |
 | :--- | :--- |
 | `./trade.sh "BUY/BTC/L=M/1000"` | ซื้อ BTC ราคาตลาด ใช้เงิน 1,000 บาท |
 | `./trade.sh "BUY/BTC/L=2000000/1000"` | ซื้อ BTC ราคา Limit 2,000,000 ใช้เงิน 1,000 บาท |
-| `./trade.sh "SELL/BTC/L=M/100%"` | ขาย BTC ราคาตลาด 100% ของที่มีในพอร์ต |
-| `./trade.sh "SELL/BTC/L=2000000/100%"` | ขาย BTC ราคา Limit 2,000,000 ขาย 100% ของที่มี |
+| `./trade.sh "SELL/BTC/L=M/100%"` | ขาย BTC ราคาตลาด 100% ของยอดที่พร้อมใช้งานใน wallet |
+| `./trade.sh "SELL/BTC/L=2000000/100%"` | ขาย BTC ราคา Limit 2,000,000 จำนวน 100% ของยอดที่พร้อมใช้งาน |
 | `./trade.sh "MONEY"` | ตรวจยอดเงินบาทคงเหลือ (Available / Reserved / Total) |
+
+Portfolio ใช้สคริปต์แยกต่างหาก: `./portfolio.sh`
+
+**Remark ในคอลัมน์ Portfolio:**
+- **Broker Coin\*** — Broker coin ไม่มี Order History ใน Bitkub API (error 61)
+- **No OH\*** — No Order History found; may be from Airdrop/Reward or external transfer
+- *(ตรวจสอบแล้วทั้ง API v3 และ v4: `my-order-history`, `crypto/deposits`, `crypto/compensations`)*
 
 ### Logic สำคัญ
 
 * **BUY** — `amt` = จำนวนบาทที่ต้องการใช้ซื้อ → ส่ง `POST /api/v3/market/place-bid`
-* **SELL** — ดึง balance จาก `GET /api/v4/wallet/balances` → คำนวณ qty ตาม % → ส่ง `POST /api/v3/market/place-ask`
+* **SELL** — ดึง available balance จาก `GET /api/v4/wallet/balances` → คำนวณ qty ตาม % ของยอดพร้อมใช้ → ส่ง `POST /api/v3/market/place-ask`
 * **L=M** → `typ=market, rat=0` | **L=ราคา** → `typ=limit, rat=ราคา`
 * **Limit Sell** — ใช้สำหรับกำหนดเป้าหมายในราคาที่ต้องการขาย (Take Profit)
 * ใช้ได้กับทุกเหรียญที่ Bitkub รองรับ เพียงเปลี่ยน `BTC` เป็นชื่อเหรียญที่ต้องการ
 
-### ⚠️ การแจ้งเตือนและยืนยันกฎ MPTM (MPTM Warning & Confirmation)
+### ⚠️ การแจ้งเตือนและยืนยันก่อนส่งคำสั่งซื้อ (BUY Warning & Confirmation)
 
-ระบบ trade.sh มีการแจ้งเตือนและขอการยืนยันก่อนส่งคำสั่งซื้อเพื่อป้องกันการซื้อที่ละเมิดกฎ MPTM:
+ระบบ `trade.sh` ทำการตรวจสอบต่อไปนี้ในคำสั่ง BUY:
 
 **ขั้นตอนการทำงาน:**
-1. ตรวจสอบสถานะเหรียญจาก Excel output (`downloads/All-Bitkub-Batch-Log-vX_output.xlsx`)
-2. ถ้าเหรียญอยู่ในสถานะ **BUY CONFIRMED** → ส่งคำสั่งซื้อทันที (ไม่มีการแจ้งเตือน)
-3. ถ้าเหรียญอยู่ในสถานะอื่น (EARLY/WATCH, PULLBACK ZONE, OVEREXTENDED, WAIT/RETEST) → แจ้งเตือน
-4. แสดงคำอธิบายกฎ MPTM และขอการยืนยัน (y/n)
-5. ถ้าผู้ใช้ไม่ยืนยัน → ยกเลิกคำสั่ง
-6. ถ้าผู้ใช้ยืนยัน → ส่งคำสั่งซื้อ (แต่มีการแจ้งเตือนไว้แล้ว)
+1. เรียก `GET /api/v3/market/symbols` และแสดง source ของเหรียญ; ถ้าเรียก API หรืออ่านข้อมูลไม่สำเร็จ สคริปต์ใช้ `exchange` เป็นค่าเริ่มต้น
+2. ถ้าเป็น **Broker Coin** → แจ้งข้อจำกัดและขอยืนยัน (y/n)
+3. ถ้ามีไฟล์ Excel output (`downloads/All-Bitkub-Batch-Log-vX_output.xlsx`) จะตรวจสถานะในชีท `Latest Snapshot`
+4. ถ้าสถานะเป็น **BUY CONFIRMED** → แจ้งว่าเหรียญผ่านเกณฑ์ MPTM และขอยืนยันก่อนส่งคำสั่งซื้อ
+5. ถ้าเป็นสถานะอื่น เช่น `EARLY/WATCH`, `PULLBACK ZONE`, `OVEREXTENDED`, `WAIT/RETEST` หรือ `UNKNOWN` → แจ้งเตือนว่าไม่ใช่ `BUY_CONFIRMED` และขอยืนยัน
+6. ถ้าไม่มีไฟล์ Excel, ไม่พบเหรียญ (`NOT_FOUND`) หรืออ่านไฟล์/ชีทไม่ได้ (`ERROR`) → แจ้งว่าไม่สามารถตรวจสอบสถานะ MPTM ได้ และขอยืนยันก่อนซื้อ
+7. เมื่อต้องยืนยัน หากผู้ใช้ตอบอย่างอื่นนอกจาก `y` หรือ `Y` คำสั่งจะถูกยกเลิก; Broker Coin ที่มีสถานะ MPTM อื่นซึ่งต้องยืนยันอาจถามสองครั้ง
 
-**ตัวอย่างการแจ้งเตือน:**
+**ตัวอย่างการแจ้งเตือน (Broker Coin):**
 ```
+ℹ️  AVA เป็น Broker Coin (source: broker)
+⚠️  Broker Coin อาจมีข้อจำกัดบางอย่าง เช่น ไม่มี Order History
+
+คุณต้องการซื้อต่อไหม? (y/n)
+```
+
+**ตัวอย่างการแจ้งเตือน (Exchange Coin + EARLY/WATCH):**
+```
+ℹ️  ATOM เป็น Exchange Coin (source: exchange)
+
 ⚠️ คำเตือน: ATOM อยู่ในสถานะ EARLY_WATCH (ไม่ใช่ BUY CONFIRMED)
 การซื้อละเมิดกฎ MPTM
 
@@ -475,12 +532,13 @@ BUY CONFIRMED = ผ่าน MPTM 6 เกณฑ์ + 1H Trigger ยืนยั
 คุณต้องการซื้อต่อไหม? (y/n)
 ```
 
-**ประโยชน์:**
-- ป้องกันการซื้อโดยไม่รู้ตัวว่าละเมิดกฎ MPTM
-- ช่วยให้ผู้ใช้ตัดสินใจใหม่ก่อนส่งคำสั่ง
-- ลดความเสี่ยงการเข้าซื้อในจังหวะผิด
-- ป้องกันการซื้อเหรียญที่อยู่ในสถานะ OVEREXTENDED (ห้ามไล่ราคา)
+**กรณีไม่มีไฟล์ Excel / NOT_FOUND / ERROR:** สคริปต์แจ้งว่าไม่สามารถตรวจสอบสถานะ MPTM ได้และถามยืนยันก่อนดำเนินการ BUY ต่อ
 
+**ประโยชน์:**
+- แจ้งให้ทราบว่าเหรียญเป็น Broker หรือ Exchange ก่อนซื้อทุกครั้ง
+- ป้องกันการซื้อ Broker Coin โดยไม่รู้ข้อจำกัด
+- ป้องกันการซื้อโดยไม่รู้ตัวว่าละเมิดกฎ MPTM
+- ป้องกันการซื้อเหรียญที่อยู่ในสถานะ OVEREXTENDED (ห้ามไล่ราคา)
 ### แหล่งข้อมูลอ้างอิง Bitkub API
 
 สำหรับการแก้ไขปัญหาและอ้างอิง API ของ Bitkub:
@@ -527,4 +585,3 @@ BUY CONFIRMED = ผ่าน MPTM 6 เกณฑ์ + 1H Trigger ยืนยั
    - เมื่อราคาแตะ Stop Loss → ส่งคำสั่ง SELL ผ่าน trade.sh
 
 **หมายเหตุ:** ไม่แนะนำให้เพิ่ม STOP command ใน trade.sh เพราะ Bitkub API ไม่รองรับโดยตรง และต้องใช้ logic ซับซ้อนเพื่อจำลอง stop loss ซึ่งเสี่ยงต่อการไม่ทำงาน
-

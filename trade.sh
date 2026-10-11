@@ -108,6 +108,31 @@ TIMESTAMP=$(curl -s "$BASE_URL/api/v3/servertime")
 # BUY
 # ============================================================
 if [[ "$SIDE" == "BUY" ]]; then
+  # ตรวจสอบ source (broker/exchange) จาก Bitkub symbols
+  COIN_SOURCE=$(curl -s "$BASE_URL/api/v3/market/symbols" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+syms = d.get('result', d.get('data', []))
+m = {s.get('symbol','').replace('_THB','').upper(): s.get('source','exchange') for s in syms}
+print(m.get('$COIN', 'exchange'))
+" 2>/dev/null || echo "exchange")
+
+  if [[ "$COIN_SOURCE" == "broker" ]]; then
+    echo "ℹ️  $COIN เป็น Broker Coin (source: broker)"
+    echo "⚠️  Broker Coin อาจมีข้อจำกัดบางอย่าง เช่น ไม่มี Order History"
+    echo ""
+    echo "คุณต้องการซื้อต่อไหม? (y/n)"
+    read -r CONFIRM_SRC
+    if [[ "$CONFIRM_SRC" != "y" && "$CONFIRM_SRC" != "Y" ]]; then
+      echo "❌ ยกเลิกคำสั่ง"
+      exit 1
+    fi
+    echo ""
+  else
+    echo "ℹ️  $COIN เป็น Exchange Coin (source: exchange)"
+    echo ""
+  fi
+
   # ตรวจสอบสถานะเหรียญจาก Excel output
   OUTPUT_FILE="$(dirname "$0")/downloads/All-Bitkub-Batch-Log-vX_output.xlsx"
   if [[ -f "$OUTPUT_FILE" ]]; then
@@ -139,7 +164,40 @@ except:
     print('ERROR')
 " 2>/dev/null)
 
-    if [[ "$STATUS" != "BUY_CONFIRMED" && "$STATUS" != "NOT_FOUND" && "$STATUS" != "ERROR" ]]; then
+    if [[ "$STATUS" == "NOT_FOUND" ]]; then
+      echo "⚠️ คำเตือน: ไม่พบ $COIN ใน Excel output (ยังไม่ได้รัน UPDATE หรือเหรียญไม่อยู่ใน Sheet)"
+      echo "ไม่สามารถตรวจสอบสถานะ MPTM ได้"
+      echo ""
+      echo "คุณต้องการซื้อต่อไหม? (y/n)"
+      read -r CONFIRM
+      if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
+        echo "❌ ยกเลิกคำสั่ง"
+        exit 1
+      fi
+      echo ""
+    elif [[ "$STATUS" == "ERROR" ]]; then
+      echo "⚠️ คำเตือน: อ่าน Excel output หรือชีท Latest Snapshot ไม่ได้"
+      echo "กรุณารัน UPDATE เพื่อตรวจสอบสถานะ MPTM ก่อนซื้อ"
+      echo ""
+      echo "คุณต้องการซื้อต่อไหม? (y/n)"
+      read -r CONFIRM
+      if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
+        echo "❌ ยกเลิกคำสั่ง"
+        exit 1
+      fi
+      echo ""
+    elif [[ "$STATUS" == "BUY_CONFIRMED" ]]; then
+      echo "✅ $COIN อยู่ในสถานะ BUY CONFIRMED (ผ่านเกณฑ์ MPTM)"
+      echo "กรุณายืนยันคำสั่งซื้อก่อนส่งคำสั่ง"
+      echo ""
+      echo "คุณต้องการซื้อต่อไหม? (y/n)"
+      read -r CONFIRM
+      if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
+        echo "❌ ยกเลิกคำสั่ง"
+        exit 1
+      fi
+      echo ""
+    elif [[ "$STATUS" != "BUY_CONFIRMED" ]]; then
       echo "⚠️ คำเตือน: $COIN อยู่ในสถานะ $STATUS (ไม่ใช่ BUY CONFIRMED)"
       echo "การซื้อละเมิดกฎ MPTM"
       echo ""
@@ -155,6 +213,17 @@ except:
       echo "✅ ยืนยันการซื้อที่ละเมิดกฎ MPTM"
       echo ""
     fi
+  else
+    echo "⚠️ คำเตือน: ไม่พบไฟล์ Excel output"
+    echo "ไม่สามารถตรวจสอบสถานะ MPTM ได้ กรุณารัน UPDATE ก่อนซื้อ"
+    echo ""
+    echo "คุณต้องการซื้อต่อไหม? (y/n)"
+    read -r CONFIRM
+    if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
+      echo "❌ ยกเลิกคำสั่ง"
+      exit 1
+    fi
+    echo ""
   fi
 
   AMT="$AMOUNT_PART"
