@@ -87,7 +87,7 @@ BITKUB_API_KEY=your_api_key_here
 BITKUB_API_SECRET=your_api_secret_here
 ```
 
-**หมายเหตุ**: หากไม่ได้ตั้งค่า `REF_SHEET_URL` ระบบจะแสดงข้อความให้ตั้งค่า `REF_SHEET_URL` จากนั้นหยุดทำงานด้วยรหัสข้อผิดพลาด โดยไม่ดาวน์โหลดชีตหรือประมวลผลรายงาน
+**หมายเหตุ**: หากไม่ได้ตั้งค่า `REF_SHEET_URL` คำสั่ง `UPDATE` จะแจ้งให้ตั้งค่าและหยุดทำงานด้วยรหัสข้อผิดพลาด โดยไม่ดาวน์โหลดชีตหรือประมวลผลรายงาน ส่วน `PORTFOLIO` ยังคงแสดงตารางได้ แต่จะแสดง Tier เป็น `N/A` พร้อมคำเตือน; `TARGET` จะแจ้งว่าอ่าน Tier ไม่ได้และไม่แสดง Target Price หรือคำสั่งขายแนะนำ
 
 หากต้องการสร้าง Google Sheet และ Apps Script เพื่ออัปเดตข้อมูลเหรียญสำหรับใช้งานเอง ดู [คู่มือการตั้งค่า Google Sheets](./GOOGLE-SHEETS-SETUP.md), [Apps Script ต้นแบบสำหรับเริ่มต้น](./examples/All-Bitkub-BATCH-starter.gs) หรือ [สคริปต์ MTFS ฉบับเต็มพร้อม Trigger รายชั่วโมง](./examples/All-Bitkub-MTFS.gs)
 
