@@ -4,7 +4,7 @@
 # 🔔 การเริ่มต้นใช้งาน
 1. ติดตั้ง [Devin](https://devin.ai/download) และสร้างโฟลเดอร์ใน root ของโปรเจกต์ และดาวน์โหลดไฟล์ [TFOSvX](https://github.com/TimeFrameLab/TFOSvX/archive/refs/heads/main.zip) แล้วแตกไฟล์ออกเป็นโฟลเดอร์ ใส่ในโฟลเดอร์นั้น
 2. เปิด TFOSvX.code-workspace → README.md
-3. เริ่มต้นการทำงานด้วยการพิมพ์ "START @README.md"(ระบบ → REVIEW @TimeFrame-OS-guidelines-and-model-vX.md → รอคำสั่งถัดไป) ใน Agent Chat ของ Devin ที่อยู่ในโปรเจกต์โฟลเดอร์
+3. เริ่มต้นการทำงานด้วยการพิมพ์ `START @README.md` ใน Agent Chat ของ Devin ที่อยู่ในโฟลเดอร์โปรเจกต์ ระบบต้องอ่านและ REVIEW `@TimeFrame-OS-guidelines-and-model-vX.md` ให้ครบก่อนตอบรับและรอคำสั่งถัดไป
 
 # 🐋 TimeFrame OS (vX)
 
@@ -93,32 +93,37 @@ BITKUB_API_SECRET=your_api_secret_here
 
 ### 4. ตั้งค่า Script Permissions
 ```bash
-chmod +x update.sh trade.sh portfolio.sh
+chmod +x update.sh trade.sh portfolio.sh cancel.sh
 ```
 
 ## 📖 วิธีการใช้งาน
 
 ### เริ่มต้นการทำงาน (START Command)
 
-เมื่อเปิดไฟล์โปรเจกต์นี้ ให้พิมพ์คำสั่ง **"START"** เพื่อเริ่มต้นการทำงาน:
+เมื่อเปิดไฟล์โปรเจกต์นี้ ให้พิมพ์คำสั่ง **`START @README.md`** เพื่อเริ่มต้นการทำงาน:
 
 ```
-START
+START @README.md
 ```
 
 **สิ่งที่เกิดขึ้น**:
-1. ระบบจะทบทวนเนื้อหาใน `TimeFrame-OS-guidelines-and-model-vX.md`
-2. ตรวจสอบสถานะระบบและการตั้งค่า `.env`
-3. พร้อมรับคำสั่งถัดไป เช่น `UPDATE`, `MONEY`, `PORTFOLIO`, `CANDIDATE`, หรือคำสั่งซื้อขาย
+1. อ่านและ REVIEW เนื้อหาใน `README.md` และ `TimeFrame-OS-guidelines-and-model-vX.md` ให้ครบ โดยเฉพาะกฎการทำงานและ Required Answer Format
+2. ใช้ guideline เป็นมาตรฐานหลักสำหรับการวิเคราะห์และรูปแบบการแสดงผลทุกคำสั่งที่เกี่ยวข้อง ห้ามละหัวข้อ บรรทัดบังคับ ลำดับข้อมูล หัวคอลัมน์ หรือลิงก์ตามที่กำหนด และห้ามแทนข้อมูลจริงด้วยการคาดเดา
+3. ตรวจสอบสถานะระบบและการตั้งค่า `.env` ตามที่จำเป็น โดยไม่เปิดเผยค่าความลับ
+4. ตอบรับว่า REVIEW แล้วเมื่ออ่านไฟล์ครบจริง จากนั้นพร้อมรับคำสั่งถัดไป เช่น `UPDATE`, `MONEY`, `PORTFOLIO`, `CANDIDATE`, `TARGET`, `CANCEL`, หรือคำสั่งซื้อขาย หากอ่านไฟล์ไม่ได้ ต้องแจ้งข้อจำกัดและห้ามอ้างว่า REVIEW ครบแล้ว
+
+**ข้อบังคับหลัง START:** ทุกคำตอบหลังจากนั้นต้องใช้รูปแบบใน `TimeFrame-OS-guidelines-and-model-vX.md` อย่างเคร่งครัดในส่วนที่เกี่ยวข้องกับคำสั่งนั้น โดยยึด Required Answer Format และ schema ของแต่ละคำสั่งเป็นหลัก หากข้อมูลที่ guideline บังคับต้องใช้ไม่มีหรือดึงไม่ได้ ให้แจ้งสถานะข้อมูลตามคู่มือแทนการละรูปแบบหรือแต่งข้อมูลขึ้นเอง
 
 ### คำสั่งหลักที่ใช้งาน
 
 | คำสั่ง | การใช้งาน | ผลลัพธ์ |
 |:---|:---|:---|
-| `START` | พิมพ์ในแชท | เริ่มต้นการทำงาน → REVIEW guideline → รอคำสั่งถัดไป |
+| `START @README.md` | พิมพ์ในแชท | อ่าน README และ REVIEW guideline ให้ครบ ยึดรูปแบบแสดงผลตาม guideline อย่างเคร่งครัด แล้วรอคำสั่งถัดไป |
 | `UPDATE` | รัน `./update.sh` | ดาวน์โหลดข้อมูลล่าสุด + ประมวลผล MPTM + ตรวจ Liquidity |
 | `MONEY` | รัน `./trade.sh "MONEY"` | ตรวจยอดเงินบาทคงเหลือ |
 | `TARGET/COIN` | รัน `./trade.sh "TARGET/BTC"` | ตรวจยอดเหรียญ คำนวณ Target Price ตาม TIER และเสนอคำสั่ง Limit Sell (ไม่ส่งคำสั่งขาย) |
+| `CANCEL/COIN` | รัน `./cancel.sh "CANCEL/BTC"` | อ่าน Open Orders และแสดง BUY/SELL ที่ยังเปิด พร้อมคำสั่งยกเลิกราย Order ID โดยไม่ส่งคำขอยกเลิก |
+| `CANCEL/COIN/SELL/ID=<ORDER_ID>` หรือ `CANCEL/COIN/BUY/ID=<ORDER_ID>` | รัน `./cancel.sh "CANCEL/BTC/SELL/ID=<ORDER_ID>"` | ตรวจยืนยัน Order ID/ฝั่งที่ยังเปิดก่อนยกเลิก แล้วอ่าน Open Orders ซ้ำ |
 | `PORTFOLIO` | รัน `./portfolio.sh` | แสดง Portfolio + ราคาซื้อเฉลี่ย + กำไร/ขาดทุน + %P/L พร้อมราคาและปริมาณคำสั่งขาย Limit ที่ยังเปิดอยู่ |
 | `CANDIDATE` | ค้นหาใน Excel | แสดงเหรียญที่ผ่าน PRE-ENTRY-Like Pattern (6 เกณฑ์) |
 | `REVIEW` | พิมพ์ในแชท | อ่าน guideline อีกครั้งและพร้อมรับคำสั่งใหม่ |
@@ -213,6 +218,18 @@ START
 ```bash
 ./trade.sh "TARGET/BTC"
 ```
+
+### ตรวจและยกเลิกคำสั่งที่ยังเปิดอยู่ (CANCEL)
+
+`CANCEL/COIN` อ่าน `GET /api/v3/market/my-open-orders?sym=<coin>_thb` และแสดงเฉพาะ BUY/SELL ที่ Bitkub ส่งกลับใน Open Orders ของ `<COIN>_THB` (ไม่รวมคำสั่งที่จับคู่เสร็จ ยกเลิกแล้ว หรือไม่ปรากฏในผลตรวจ) ทั้ง Limit และ Market ที่ API ส่งกลับ โดยแสดง Order ID, ประเภท, ราคา, ปริมาณ และคำสั่งยกเลิกแยกตาม ID คำสั่ง Market แสดงราคาเป็น `Market` โหมดนี้เป็นการตรวจสอบอย่างเดียวและไม่ส่งคำขอยกเลิก:
+
+```bash
+./cancel.sh "CANCEL/BTC"
+```
+
+หากต้องการยกเลิก ให้ระบุฝั่งและ Order ID ที่ต้องการอย่างชัดเจน เช่น `./cancel.sh "CANCEL/BTC/SELL/ID=<ORDER_ID>"` หรือ `./cancel.sh "CANCEL/BTC/BUY/ID=<ORDER_ID>"` โดยแทน `<ORDER_ID>` ด้วย ID จริงตามที่แสดงทุกตัวอักษร/ตัวเลขและตัวพิมพ์ สคริปต์อ่าน Open Orders ล่าสุดและยืนยันว่า ID กับฝั่งตรงกันก่อนส่ง `POST /api/v3/market/cancel-order` โดยใช้ `sym=<coin>_thb`, `id=<order_id>`, `sd=sell|buy` จากนั้นอ่าน Open Orders ซ้ำและรายงานว่า ID ยังเปิดอยู่หรือไม่พบแล้ว การระบุ ID ครั้งเดียวจะยกเลิกได้เพียงรายการเดียว
+
+หากอ่าน Open Orders ไม่สำเร็จ, Bitkub ตอบ error, response ผิดรูปแบบ หรือมีข้อมูลรายการไม่ครบ สคริปต์หยุดก่อนส่งคำขอยกเลิก; หากไม่พบ ID/ฝั่งที่ระบุในผลล่าสุดก็จะไม่ส่งคำขอเช่นกัน หากการอ่าน Open Orders หลังส่งคำขอล้มเหลว สคริปต์จะแจ้งว่าตรวจสอบผลซ้ำไม่ได้ โดยคำขอยกเลิกได้ถูกส่งไปแล้ว
 ตรวจยอด BTC พร้อมขายจาก Bitkub v4 `wallet/balances`, อ่าน `TIER` จากแถว `AKA` ที่ตรงกันใน REF Sheet ที่กำหนดด้วย `REF_SHEET_URL`, และคำนวณต้นทุนเฉลี่ยรวมค่าธรรมเนียมจากประวัติคำสั่งซื้อ Bitkub v3 ก่อนเสนอคำสั่ง Limit Sell รูปแบบ `SELL/BTC/L=<Target Price>/100%` โดย **ไม่ส่งคำสั่งขายอัตโนมัติ**
 
 Target Price ต้องสอดคล้องกับ `price_scale`/`price_step` ของคู่เทรดจาก Symbols API และปัดขึ้นตามขั้นราคาก่อนใช้ส่งคำสั่ง เช่น Target ของ CVC ที่คำนวณได้ `1.130357...` ให้ใช้ `1.1304 THB` (`CVC_THB`: `price_scale=4`, `price_step=0.0001`) ทั้งนี้ค่าความละเอียดขึ้นกับแต่ละคู่และอาจเปลี่ยนตามข้อมูลปัจจุบันจาก Bitkub; อย่าสมมติว่าทุกคู่ใช้ 4 หรือ 8 ตำแหน่ง
@@ -234,6 +251,7 @@ TFOSvX/
 ├── .gitignore                                ← กฎละเว้นไฟล์และโฟลเดอร์
 ├── update.sh                                 ← ดาวน์โหลดข้อมูลและประมวลผลรายงาน
 ├── trade.sh                                  ← ตรวจยอดเงินและส่งคำสั่งซื้อขาย
+├── cancel.sh                                 ← ตรวจ Open Orders และยกเลิกตาม Order ID ที่ระบุ
 ├── portfolio.sh                              ← แสดง Portfolio และ P/L
 ├── README.md                                 ← คู่มือหลักของโครงการ
 ├── GOOGLE-SHEETS-SETUP.md                   ← คู่มือตั้งค่า Google Sheets
@@ -285,7 +303,7 @@ TFOSvX/
 ### สรุป Workflow การทำงาน
 
 ```
-1. START → REVIEW guideline → พร้อมรับคำสั่ง
+1. START @README.md → REVIEW README และ guideline ให้ครบ → ยึดรูปแบบคำตอบตาม guideline → พร้อมรับคำสั่ง
               ↓
 2. UPDATE → ดาวน์โหลดข้อมูล → ประมวลผล MPTM → สร้าง Excel 3 ชีท
               ↓
@@ -310,7 +328,7 @@ pip3 install openpyxl requests
 ### ข้อผิดพลาด: Permission denied สำหรับ script
 **วิธีแก้**: ตั้งค่า execute permission:
 ```bash
-chmod +x update.sh trade.sh portfolio.sh
+chmod +x update.sh trade.sh portfolio.sh cancel.sh
 ```
 
 ### ข้อผิดพลาด: Sheet ID ไม่ถูกต้อง

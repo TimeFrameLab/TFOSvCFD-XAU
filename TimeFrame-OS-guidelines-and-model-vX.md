@@ -25,6 +25,7 @@ MPTM/
 ├── .env                    ← เก็บ REF_SHEET_URL, BITKUB_API_KEY, BITKUB_API_SECRET
 ├── update.sh               ← โหลด .env → ดึง Sheet ID → ดาวน์โหลดข้อมูล
 ├── trade.sh                ← โหลด .env → ใช้ API Key ส่งคำสั่งซื้อขาย
+├── cancel.sh               ← อ่าน Open Orders และยกเลิกเฉพาะ Order ID/ฝั่งที่ระบุ
 ├── portfolio.sh            ← script แสดง Portfolio + ราคาซื้อเฉลี่ย + P/L + Remark (Broker Coin* / No OH*)
 └── TimeFrame-OS-guidelines-and-model-vX.md  ← เอกสารแนวทางนี้
 ```
@@ -64,6 +65,7 @@ MPTM/
 │ 5. คำสั่งเพิ่มเติม                                    │
 │    MONEY → ตรวจยอดเงิน                               │
 │    TARGET/COIN → คำนวณ Target Price จาก Portfolio    │
+│    CANCEL/COIN → ตรวจ/เสนอคำสั่งยกเลิกราย Order ID  │
 │    PORTFOLIO → แสดง Portfolio + ราคาซื้อเฉลี่ย + P/L + Remark                         │
 │    CANDIDATE → แสดง PRE-ENTRY-Like Pattern CANDIDATE   │
 │    REVIEW → อ่าน guideline อีกครั้ง                  │
@@ -75,10 +77,12 @@ MPTM/
 
 | คำสั่ง | การใช้งาน | ผลลัพธ์ |
 |:---|:---|:---|
-| `START` | พิมพ์ในแชท | เริ่มต้นการทำงาน → REVIEW guideline → รอคำสั่งถัดไป |
+| `START @README.md` | พิมพ์ในแชท | อ่าน README และ REVIEW guideline ให้ครบ ยึดรูปแบบคำตอบตาม guideline อย่างเคร่งครัด แล้วรอคำสั่งถัดไป |
 | `UPDATE` | รัน `./update.sh` | ดาวน์โหลดข้อมูลล่าสุด + ประมวลผล MPTM + ตรวจ Liquidity |
 | `MONEY` | รัน `./trade.sh "MONEY"` | ตรวจยอดเงินบาทคงเหลือ |
 | `TARGET/COIN` | รัน `./trade.sh "TARGET/BTC"` | ตรวจยอดเหรียญ คำนวณ Target Price ตาม TIER และเสนอคำสั่ง SELL (ไม่ส่งคำสั่งจริง) |
+| `CANCEL/COIN` | รัน `./cancel.sh "CANCEL/BTC"` | ตรวจ Open Orders และเสนอคำสั่งยกเลิกราย Order ID โดยไม่ส่งคำขอ |
+| `CANCEL/COIN/SELL/ID=<ORDER_ID>` หรือ `CANCEL/COIN/BUY/ID=<ORDER_ID>` | รัน `./cancel.sh "CANCEL/BTC/SELL/ID=<ORDER_ID>"` | ตรวจ ID/ฝั่งใน Open Orders ล่าสุดก่อนยกเลิก จากนั้นตรวจ Open Orders ซ้ำ |
 | `PORTFOLIO` | รัน `./portfolio.sh` | แสดง Portfolio + ราคาซื้อเฉลี่ย + กำไร/ขาดทุน + %P/L พร้อมราคาและปริมาณคำสั่งขาย Limit ที่ยังเปิดอยู่ |
 | `CANDIDATE` | ค้นหาใน Excel | แสดงเหรียญที่ผ่าน PRE-ENTRY-Like Pattern (6 เกณฑ์) |
 | `REVIEW` | พิมพ์ในแชท | อ่าน guideline อีกครั้งและพร้อมรับคำสั่งใหม่ |
@@ -87,18 +91,21 @@ MPTM/
 
 #### คำสั่งเริ่มต้น (START Command)
 
-เมื่อเปิดไฟล์นี้และพิมพ์คำสั่ง **"START"** ระบบจะดำเนินการดังนี้:
+เมื่อเปิดโปรเจกต์และพิมพ์คำสั่ง **`START @README.md`** ระบบจะดำเนินการดังนี้:
 
-1. **REVIEW Guideline**: อ่านและทบทวนเนื้อหาใน `TimeFrame-OS-guidelines-and-model-vX.md`
-2. **ตรวจสอบสถานะระบบ**: ยืนยันว่าไฟล์ `.env` ได้รับการตั้งค่าเรียบร้อย
-3. **พร้อมรับคำสั่ง**: รอรับคำสั่งถัดไปจากผู้ใช้ เช่น `UPDATE`, `MONEY`, `PORTFOLIO`, `CANDIDATE`, หรือคำสั่งซื้อขาย
+1. อ่าน `README.md` และ REVIEW เนื้อหาใน `TimeFrame-OS-guidelines-and-model-vX.md` ให้ครบ โดยเฉพาะกฎการทำงานและ Required Answer Format
+2. ใช้ guideline เป็นมาตรฐานหลักสำหรับการวิเคราะห์และรูปแบบการแสดงผลทุกคำสั่งที่เกี่ยวข้อง ห้ามละหัวข้อ บรรทัดบังคับ ลำดับข้อมูล หัวคอลัมน์ หรือลิงก์ที่กำหนด และห้ามคาดเดาข้อมูลที่ไม่มี
+3. ตรวจสอบสถานะระบบและการตั้งค่า `.env` ตามที่จำเป็น โดยไม่เปิดเผยค่าความลับ
+4. ตอบรับว่า REVIEW แล้วเมื่ออ่านไฟล์ครบจริง จากนั้นรอรับคำสั่ง เช่น `UPDATE`, `MONEY`, `PORTFOLIO`, `CANDIDATE`, `TARGET`, `CANCEL`, หรือคำสั่งซื้อขาย หากอ่านไฟล์ไม่ได้ต้องแจ้งข้อจำกัดและห้ามอ้างว่า REVIEW ครบแล้ว
 
 **ตัวอย่างการใช้งาน**:
 ```
-ผู้ใช้: START
+ผู้ใช้: START @README.md
 ระบบ: กำลังทบทวน TimeFrame-OS-guidelines-and-model-vX.md...
-ระบบ: ✅ พร้อมรับคำสั่ง (UPDATE / MONEY / PORTFOLIO / CANDIDATE / TARGET / BUY / SELL)
+ระบบ: ✅ พร้อมรับคำสั่ง (UPDATE / MONEY / PORTFOLIO / CANDIDATE / TARGET / CANCEL / BUY / SELL)
 ```
+
+หลัง START ให้ใช้รูปแบบคำตอบและโครงสร้างผลลัพธ์ตาม guideline อย่างเคร่งครัดในทุกคำสั่งที่เกี่ยวข้อง หากข้อมูลที่จำเป็นไม่มีหรือดึงไม่ได้ ให้แจ้งตามกฎข้อมูลไม่พร้อมของคู่มือ ห้ามละรูปแบบหรือสร้างข้อมูลขึ้นเอง
 
 ### 1. ปรัชญาและหลักการวิเคราะห์คัดกรอง (Core Decision Framework)
 * **การคัดกรองตามลำดับขั้น**: ระบบไม่จัดอันดับว่าเหรียญไหนดีที่สุดตั้งแต่แรก แต่คัดกรองตามลำดับโครงสร้างไทม์เฟรม **W → D → 4H → 1H**
@@ -449,16 +456,16 @@ Source      : exchange
 
 ## Part 10: การเปิดแชทใหม่ (New Chat Initialization)
 
-เมื่อเปิดแชทใหม่ทุกครั้ง ให้เริ่มต้นด้วยคำสั่งนี้:
+เมื่อเปิดแชทใหม่ทุกครั้ง ให้เปิด `README.md` และเริ่มต้นด้วยคำสั่งนี้:
 
 ```
-START
+START @README.md
 ```
 
 **หมายเหตุสำคัญ:**
-* คำสั่ง **"START"** จะอ่านไฟล์ guideline จากพาธ `.../TFOSvX/TimeFrame-OS-guidelines-and-model-vX.md` อัตโนมัติ
+* คำสั่ง **`START @README.md`** กำหนดให้อ่าน README และ REVIEW ไฟล์ `TimeFrame-OS-guidelines-and-model-vX.md` จากโปรเจกต์ให้ครบก่อนตอบรับ
 * **กรณีเครื่องใหม่**: ผู้ใช้ต้องสร้างโครงการ (โฟลเดอร์) ก่อน โดยตั้งชื่อโฟลเดอร์เป็น `MPTM` และวางไฟล์ `TimeFrame-OS-guidelines-and-model-vX.md` ไว้ในโฟลเดอร์นั้น
-* หลังจากพิมพ์ **"START"** ระบบจะโหลดหลักการ MPTM, วิธีดึงข้อมูล, คำสั่ง update.sh และ format การตอบครบทันที
+* หลังจากพิมพ์ **`START @README.md`** ระบบต้องใช้หลักการ MPTM, วิธีดึงข้อมูล, คำสั่งสคริปต์ และรูปแบบคำตอบใน guideline อย่างเคร่งครัด หากอ่าน guideline ไม่ได้ต้องแจ้งและห้ามอ้างว่าได้ REVIEW แล้ว
 * จากนั้นพิมพ์ **"UPDATE"** ได้เลย — ระบบจะดึงข้อมูลล่าสุด, ประมวลผล MPTM และตรวจ **Liquidity ทุกเหรียญในทุกหมวด** (🟢 HIGH / 🟡 MEDIUM / 🔴 LOW) พร้อม Vol24h และ Spread% โดยอัตโนมัติ
 * กรณีพิมพ์ **"CANDIDATE"** - ระบบจะแสดงเหรียญที่อยู่ในสถานะ PRE-ENTRY-Like Pattern(CANDIDATE) พร้อมข้อมูลที่จำเป็น
 * กรณีพิมพ์ **"REVIEW"** - ระบบจะอ่านไฟล์ TimeFrame-OS-guidelines-and-model-vX.md อีกครั้งและพร้อมรับคำสั่งใหม่
@@ -484,7 +491,7 @@ BITKUB_API_KEY=your_api_key_here
 BITKUB_API_SECRET=your_api_secret_here
 ```
 
-* trade.sh โหลด `.env` อัตโนมัติทุกครั้งที่รัน ไม่ต้อง `export` เอง
+* trade.sh โหลด `.env` อัตโนมัติทุกครั้งที่รัน ไม่ต้อง `export` เอง; cancel.sh อ่าน `BITKUB_API_KEY` และ `BITKUB_API_SECRET` จาก `.env`
 * API ใช้ Bitkub REST v3 (`place-bid` / `place-ask` / `my-order-history` / `my-open-orders`) + v4 (`wallet/balances`)
 * Signature: HMAC SHA-256 format `{timestamp}{METHOD}{path}{body}`
 * Error handling: ดู [Bitkub API Error Handling](https://api.bitkub.com/docs/errors); แสดง HTTP status code และ Bitkub JSON `error` code ที่ API ตอบกลับ โดยไม่แทนค่าหรือกลบข้อผิดพลาด
@@ -499,6 +506,8 @@ BITKUB_API_SECRET=your_api_secret_here
 | `./trade.sh "SELL/BTC/L=2000000/100%"` | ขาย BTC ราคา Limit 2,000,000 จำนวน 100% ของยอดที่พร้อมใช้งาน |
 | `./trade.sh "MONEY"` | ตรวจยอดเงินบาทคงเหลือ (Available / Reserved / Total) |
 | `./trade.sh "TARGET/BTC"` | ตรวจยอด BTC พร้อมขายและเสนอ Target Price/คำสั่ง Limit Sell ตาม TIER โดยไม่ส่งคำสั่งขาย |
+| `./cancel.sh "CANCEL/BTC"` | ตรวจ Open Orders ของ BTC_THB แสดง BUY/SELL ที่ยังเปิดอยู่พร้อม Order ID ประเภท ราคา ปริมาณ และคำสั่งยกเลิกราย ID โดยไม่ส่งคำขอยกเลิก |
+| `./cancel.sh "CANCEL/BTC/SELL/ID=<ORDER_ID>"` หรือ `./cancel.sh "CANCEL/BTC/BUY/ID=<ORDER_ID>"` | ยกเลิกเฉพาะ Order ID/ฝั่งที่ระบุ เมื่อยืนยันว่าตรงกับ Open Orders ล่าสุด แล้วตรวจ Open Orders ซ้ำ |
 
 Portfolio ใช้สคริปต์แยกต่างหาก: `./portfolio.sh`
 
@@ -515,6 +524,14 @@ Portfolio ใช้สคริปต์แยกต่างหาก: `./portf
 - ถ้า balance/history API ผิดพลาด จะแสดง HTTP status code และ Bitkub error code; ห้ามตีความ API error ว่าไม่มีเหรียญ
 - ถ้ามียอดพร้อมขายแต่ไม่มีประวัติ BUY ที่ตรวจสอบได้ เช่น Broker Coin/error 61 หรือเหรียญที่โอนเข้า จะไม่คาดเดาต้นทุนหรือ Target Price; แนะนำตรวจต้นทุนจากแหล่งที่มา แล้วส่ง `SELL/COIN/L=PRICE/100%` ด้วยราคาที่ผู้ใช้กำหนดเอง
 - คำสั่ง TARGET ไม่วาง/ส่งคำสั่งขายอัตโนมัติ และ `100%` หมายถึง 100% ของยอด available ที่พร้อมขาย ไม่รวมยอด reserved
+
+### คำสั่ง CANCEL — ตรวจและยกเลิกคำสั่งเปิด
+
+`./cancel.sh "CANCEL/COIN"` เรียก `GET /api/v3/market/my-open-orders?sym=<coin>_thb` และแสดงเฉพาะ BUY/SELL ที่ Bitkub ส่งกลับใน Open Orders ไม่รวมรายการที่จับคู่เสร็จ ยกเลิกแล้ว หรือไม่ปรากฏในผลตรวจ ทั้ง Limit และ Market ที่ API ส่งกลับ โดยแสดง Order ID, ประเภท, ราคา และปริมาณ พร้อมคำสั่งแยกแต่ละ ID เช่น `CANCEL/COIN/SELL/ID=<ORDER_ID>` และ `CANCEL/COIN/BUY/ID=<ORDER_ID>`. คำสั่ง Market แสดงราคาเป็น `Market`; โหมดนี้เป็น read-only และไม่ส่งคำขอยกเลิก.
+
+เมื่อผู้ใช้สั่งด้วยรูปแบบ `./cancel.sh "CANCEL/COIN/SELL/ID=<ORDER_ID>"` หรือฝั่ง BUY สคริปต์อ่าน Open Orders ล่าสุดและยืนยันว่า ID/ฝั่งตรงกันก่อน จากนั้นส่ง `POST /api/v3/market/cancel-order` ด้วย `sym=<coin>_thb`, `id=<order_id>` ตามตัวอักษร/ตัวเลขที่ระบุ, `sd=sell|buy` แล้วอ่าน Open Orders ซ้ำเพื่อรายงานว่า ID ยังเปิดอยู่หรือไม่พบแล้ว. ให้ใช้ Order ID ตรงตามผลตรวจทุกตัวอักษร/ตัวเลขและตัวพิมพ์; คำสั่งหนึ่งครั้งยกเลิกได้เพียง Order ID เดียว.
+
+หากอ่าน Open Orders ก่อนส่งไม่สำเร็จ, Bitkub ตอบ error, response ผิดรูปแบบ, มีข้อมูลรายการไม่ครบ หรือไม่พบ ID/ฝั่งที่ระบุ สคริปต์หยุดโดยไม่ส่งคำขอยกเลิก. หากอ่าน Open Orders หลังส่งไม่สำเร็จ สคริปต์แจ้งว่าตรวจสอบผลซ้ำไม่ได้ โดยคำขอยกเลิกได้ถูกส่งไปแล้ว.
 
 **Remark ในคอลัมน์ Portfolio:**
 - **Broker Coin\*** — Broker coin ไม่มี Order History ใน Bitkub API (error 61)
