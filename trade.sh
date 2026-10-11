@@ -61,6 +61,120 @@ sign() {
   echo -n "$1" | openssl dgst -sha256 -hmac "$API_SECRET" | awk '{print $NF}'
 }
 
+# Read TIER from the same current REF Sheet row used by PORTFOLIO.
+get_tier_for_coin() {
+  local coin="$1" sheet_id tier_dir tier_file tier_value
+  if [[ -z "$REF_SHEET_URL" ]]; then
+    echo "ไม่พบ REF_SHEET_URL ใน .env" >&2
+    return 1
+  fi
+  sheet_id=$(echo "$REF_SHEET_URL" | sed -n 's|.*/d/\([^/]*\).*|\1|p')
+  if [[ -z "$sheet_id" ]]; then
+    echo "REF_SHEET_URL ไม่มี Sheet ID ที่ถูกต้อง" >&2
+    return 1
+  fi
+  tier_dir=$(mktemp -d) || return 1
+  tier_file="$tier_dir/reference.xlsx"
+  if ! curl -fsSL "https://docs.google.com/spreadsheets/d/$sheet_id/export?format=xlsx" -o "$tier_file"; then
+    rm -rf "$tier_dir"
+    echo "ดาวน์โหลด REF Sheet เพื่ออ่าน TIER ไม่สำเร็จ" >&2
+    return 1
+  fi
+  if tier_value=$(TIER_FILE="$tier_file" COIN="$coin" python3 -c '
+import os, re, sys
+from zipfile import BadZipFile
+import openpyxl
+try:
+    workbook = openpyxl.load_workbook(os.environ["TIER_FILE"], read_only=True, data_only=True)
+    sheet = workbook["All-Bitkub-BATCH"]
+    headers = [str(value).strip().upper() if value is not None else "" for value in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))]
+    coin_col = headers.index("AKA")
+    tier_col = headers.index("TIER")
+    tier_value = None
+    for row in sheet.iter_rows(min_row=2, values_only=True):
+        if coin_col >= len(row) or tier_col >= len(row):
+            continue
+        if str(row[coin_col] or "").strip().upper() != os.environ["COIN"]:
+            continue
+        match = re.fullmatch(r"T?([1-4])(?:\.0+)?", str(row[tier_col] or "").strip().upper())
+        if match:
+            tier_value = match.group(1)
+    if tier_value is not None:
+        print(tier_value)
+        sys.exit(0)
+except (OSError, KeyError, StopIteration, ValueError, BadZipFile, openpyxl.utils.exceptions.InvalidFileException) as exc:
+    print(f"อ่าน REF Sheet หรือ AKA/TIER ไม่สำเร็จ: {exc}", file=sys.stderr)
+    sys.exit(1)
+print("ไม่พบ TIER 1-4 ของเหรียญใน REF Sheet", file=sys.stderr)
+sys.exit(1)
+'); then
+    rm -rf "$tier_dir"
+    printf '%s\n' "$tier_value"
+    return 0
+  fi
+  rm -rf "$tier_dir"
+  return 1
+}
+
+# Read the current price precision and tick size for a THB trading pair.
+get_price_rules_for_coin() {
+  local coin="$1" response status
+  if ! response=$(curl -sS -w $'\n%{http_code}' "$BASE_URL/api/v3/market/symbols"); then
+    echo "ดึง Bitkub Symbols API ไม่สำเร็จ" >&2
+    return 1
+  fi
+  status="${response##*$'\n'}"
+  response="${response%$'\n'*}"
+  SYMBOLS_JSON="$response" SYMBOLS_HTTP_STATUS="$status" COIN="$coin" python3 -c '
+import json
+import os
+import sys
+from decimal import Decimal, InvalidOperation
+
+status = os.environ["SYMBOLS_HTTP_STATUS"]
+try:
+    response = json.loads(os.environ["SYMBOLS_JSON"])
+except json.JSONDecodeError:
+    print(f"Bitkub Symbols API ตอบ JSON ไม่ถูกต้อง (HTTP status: {status})", file=sys.stderr)
+    sys.exit(1)
+if (
+    not isinstance(response, dict)
+    or not status.isdigit()
+    or not 200 <= int(status) < 300
+    or str(response.get("error", "unavailable")) != "0"
+):
+    error = response.get("error", "unavailable") if isinstance(response, dict) else "invalid response"
+    print(f"Bitkub Symbols API error (HTTP status: {status}, Bitkub error code: {error})", file=sys.stderr)
+    sys.exit(1)
+symbols = response.get("result", response.get("data"))
+if not isinstance(symbols, list):
+    print("Bitkub Symbols API ไม่มีรายการคู่เทรดที่ถูกต้อง", file=sys.stderr)
+    sys.exit(1)
+symbol = next(
+    (
+        item for item in symbols
+        if isinstance(item, dict) and str(item.get("symbol", "")).upper() == os.environ["COIN"] + "_THB"
+    ),
+    None,
+)
+if symbol is None:
+    print("ไม่พบคู่ {}_THB ใน Bitkub Symbols API".format(os.environ["COIN"]), file=sys.stderr)
+    sys.exit(1)
+try:
+    scale_text = str(symbol["price_scale"])
+    if not scale_text.isdigit():
+        raise ValueError("price_scale is not a non-negative integer")
+    scale = int(scale_text)
+    step = Decimal(str(symbol["price_step"]))
+    if not step.is_finite() or step <= 0 or step.normalize().as_tuple().exponent < -scale:
+        raise ValueError("price_step is invalid for price_scale")
+except (KeyError, InvalidOperation, ValueError) as exc:
+    print("ข้อมูล price_scale/price_step ของคู่ {}_THB ไม่ถูกต้อง: {}".format(os.environ["COIN"], exc), file=sys.stderr)
+    sys.exit(1)
+print("{}\t{}\t{}".format(symbol.get("source") or "Unknown", scale, format(step, "f")))
+'
+}
+
 # ============================================================
 # MONEY — ตรวจยอดเงินบาทคงเหลือ
 # ============================================================
@@ -178,68 +292,17 @@ print(f'{available}\\t{reserved}\\t{total}')
     exit 0
   fi
 
-  TIER_FILE="$(dirname "$0")/downloads/All-Bitkub-Batch-Log-vX_output.xlsx"
-  if ! TIER=$(TIER_FILE="$TIER_FILE" COIN="$COIN" python3 -c "
-import os, re, sys
-from zipfile import BadZipFile
-import openpyxl
-try:
-    workbook = openpyxl.load_workbook(os.environ['TIER_FILE'], read_only=True, data_only=True)
-    sheet = workbook['Latest Snapshot']
-    headers = [str(value).strip().upper() if value is not None else '' for value in next(sheet.iter_rows(min_row=2, max_row=2, values_only=True))]
-    coin_col = headers.index('ชื่อเหรียญ')
-    tier_col = headers.index('TIER')
-    for row in sheet.iter_rows(min_row=3, values_only=True):
-        if coin_col < len(row) and str(row[coin_col] or '').strip().upper() == os.environ['COIN']:
-            match = re.fullmatch(r'T?([1-4])(?:\\.0+)?', str(row[tier_col] if tier_col < len(row) else '').strip().upper())
-            if match:
-                print(match.group(1))
-                sys.exit(0)
-            break
-except (OSError, KeyError, StopIteration, BadZipFile, openpyxl.utils.exceptions.InvalidFileException) as exc:
-    print(f'อ่าน TIER ไม่ได้: {exc}', file=sys.stderr)
-    sys.exit(1)
-print('ไม่พบ TIER 1-4 ของเหรียญใน Latest Snapshot', file=sys.stderr)
-sys.exit(1)
-" 2>&1); then
+  if ! TIER=$(get_tier_for_coin "$COIN" 2>&1); then
     echo "❌ คำนวณ Target ไม่ได้: $TIER"
-    echo "ตรวจ UPDATE/Latest Snapshot แล้วใช้คำสั่ง SELL ระบุราคาเองได้"
+    echo "ตรวจ REF_SHEET_URL/Tier ใน Portfolio แล้วใช้คำสั่ง SELL ระบุราคาเองได้"
     exit 1
   fi
 
-  SOURCE="Unknown"
-  if SYMBOLS_WITH_STATUS=$(curl -sS -w $'\n%{http_code}' "$BASE_URL/api/v3/market/symbols"); then
-    SYMBOLS_HTTP_STATUS="${SYMBOLS_WITH_STATUS##*$'\n'}"
-    SYMBOLS_RESP="${SYMBOLS_WITH_STATUS%$'\n'*}"
-    if SOURCE_RESULT=$(SYMBOLS_JSON="$SYMBOLS_RESP" SYMBOLS_HTTP_STATUS="$SYMBOLS_HTTP_STATUS" COIN="$COIN" python3 -c "
-import json, os, sys
-status = os.environ['SYMBOLS_HTTP_STATUS']
-try:
-    response = json.loads(os.environ['SYMBOLS_JSON'])
-except json.JSONDecodeError:
-    sys.exit(1)
-if not isinstance(response, dict) or not status.isdigit() or not 200 <= int(status) < 300 or str(response.get('error', 0)) != '0':
-    error = response.get('error', 'unavailable') if isinstance(response, dict) else 'unavailable'
-    print(f\"HTTP status code: {status}; Bitkub error code: {error}\", file=sys.stderr)
-    sys.exit(1)
-symbols = response.get('result', response.get('data', []))
-if not isinstance(symbols, list):
-    print(f\"HTTP status code: {status}; Bitkub error code: invalid symbols response\", file=sys.stderr)
-    sys.exit(1)
-for item in symbols:
-    if isinstance(item, dict) and str(item.get('symbol', '')).replace('_THB', '').upper() == os.environ['COIN']:
-        print(item.get('source', 'Unknown'))
-        sys.exit(0)
-print(f\"HTTP status code: {status}; Bitkub error code: 0 (symbol not found)\", file=sys.stderr)
-sys.exit(1)
-" ); then
-      SOURCE="$SOURCE_RESULT"
-    else
-      echo "⚠️ อ่าน Source จาก Bitkub symbols ไม่สำเร็จ; แสดง Source: Unknown (HTTP status: ${SYMBOLS_HTTP_STATUS})"
-    fi
-  else
-    echo "⚠️ ดึง Source จาก Bitkub symbols ไม่สำเร็จ; แสดง Source: Unknown"
+  if ! PRICE_RULES=$(get_price_rules_for_coin "$COIN" 2>&1); then
+    echo "❌ คำนวณ Target ไม่ได้ เพราะอ่านข้อกำหนดราคา Limit ของคู่ ${COIN}_THB ไม่สำเร็จ: $PRICE_RULES"
+    exit 1
   fi
+  IFS=$'\t' read -r SOURCE PRICE_SCALE PRICE_STEP <<< "$PRICE_RULES"
 
   HISTORY_ROWS='[]'
   HISTORY_PAGE=1
@@ -322,10 +385,11 @@ print(json.dumps(existing, separators=(',', ':')) + '\\t' + str(last))
 
   HISTORY_JSON="$HISTORY_ROWS" BALANCE_AVAILABLE="$AVAILABLE" BALANCE_RESERVED="$RESERVED" \
     BALANCE_TOTAL="$TOTAL" TIER="$TIER" COIN="$COIN" SOURCE="$SOURCE" \
+    PRICE_SCALE="$PRICE_SCALE" PRICE_STEP="$PRICE_STEP" \
     HISTORY_HTTP_STATUS="$HISTORY_HTTP_STATUS" HISTORY_API_ERROR="$HISTORY_API_ERROR" python3 - <<'PY'
 import json
 import os
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 
 rates = {
     1: Decimal("0.0825"),
@@ -370,7 +434,14 @@ if total_quantity <= 0 or total_cost <= 0:
 
 average_cost = total_cost / total_quantity
 target_price = average_cost * (Decimal("1") + rates[tier])
-target_text = format(target_price.normalize(), "f")
+try:
+    scale = int(os.environ["PRICE_SCALE"])
+    step = Decimal(os.environ["PRICE_STEP"])
+    target_price = (target_price / step).to_integral_value(rounding=ROUND_CEILING) * step
+    target_price = target_price.quantize(Decimal(1).scaleb(-scale))
+except (KeyError, InvalidOperation, ValueError):
+    raise SystemExit("❌ ข้อกำหนด price_scale/price_step ของคู่เทรดไม่ถูกต้อง; ไม่สามารถแนะนำราคา Limit")
+target_text = format(target_price, f".{scale}f")
 print(f"AKA: {coin}")
 print(f"TIER: {tier}")
 print(f"Source: {os.environ['SOURCE'].strip().capitalize()}")
@@ -395,6 +466,37 @@ if [[ "$(echo "$RATE_VAL" | tr '[:lower:]' '[:upper:]')" == "M" ]]; then
   RAT=0; TYP="market"
 else
   RAT="$RATE_VAL"; TYP="limit"
+fi
+
+if [[ "$TYP" == "limit" ]]; then
+  if ! PRICE_RULES=$(get_price_rules_for_coin "$COIN" 2>&1); then
+    echo "❌ ไม่ส่งคำสั่ง Limit: อ่าน price_scale/price_step ของคู่ ${COIN}_THB ไม่สำเร็จ"
+    echo "$PRICE_RULES"
+    exit 1
+  fi
+  IFS=$'\t' read -r _ PRICE_SCALE PRICE_STEP <<< "$PRICE_RULES"
+  if ! PRICE_ERROR=$(RATE="$RAT" PRICE_SCALE="$PRICE_SCALE" PRICE_STEP="$PRICE_STEP" python3 -c '
+import os
+import sys
+from decimal import Decimal, InvalidOperation
+
+try:
+    price = Decimal(os.environ["RATE"])
+    scale = int(os.environ["PRICE_SCALE"])
+    step = Decimal(os.environ["PRICE_STEP"])
+    if not price.is_finite() or price <= 0 or step <= 0:
+        raise ValueError("ราคาหรือ price_step ต้องมากกว่าศูนย์")
+    if price != price.quantize(Decimal(1).scaleb(-scale)):
+        raise ValueError("จำนวนตำแหน่งทศนิยมเกิน price_scale")
+    if price % step != 0:
+        raise ValueError("ราคาไม่ตรงกับ price_step")
+except (InvalidOperation, ValueError, ArithmeticError) as exc:
+    print(str(exc), file=sys.stderr)
+    sys.exit(1)
+' 2>&1); then
+    echo "❌ ไม่ส่งคำสั่ง Limit ราคา $RAT ไม่ตรงข้อกำหนดของคู่ ${COIN}_THB (price_scale=$PRICE_SCALE, price_step=$PRICE_STEP): $PRICE_ERROR"
+    exit 1
+  fi
 fi
 
 TIMESTAMP=$(curl -s "$BASE_URL/api/v3/servertime")
@@ -617,20 +719,27 @@ print(f\"✅ BUY API HTTP status code: ${BUY_HTTP_STATUS} | Bitkub error code: {
   fi
 
   OUTPUT_FILE="$(dirname "$0")/downloads/All-Bitkub-Batch-Log-vX_output.xlsx"
+  BUY_TIER=$(get_tier_for_coin "$COIN" 2>/dev/null || true)
+  BUY_PRICE_RULES_ERROR=""
+  if ! BUY_PRICE_RULES=$(get_price_rules_for_coin "$COIN" 2>&1); then
+    BUY_PRICE_RULES_ERROR="$BUY_PRICE_RULES"
+    BUY_PRICE_RULES=""
+  fi
   BUY_RESPONSE="$RESP" BUY_HTTP_STATUS="$BUY_HTTP_STATUS" HISTORY_JSON="$HISTORY_RESP" \
     HISTORY_HTTP_STATUS="$HISTORY_HTTP_STATUS" OPEN_ORDERS_JSON="$OPEN_ORDERS_RESP" \
-    OPEN_HTTP_STATUS="$OPEN_HTTP_STATUS" \
+    OPEN_HTTP_STATUS="$OPEN_HTTP_STATUS" BUY_TIER="$BUY_TIER" \
+    BUY_PRICE_RULES="$BUY_PRICE_RULES" BUY_PRICE_RULES_ERROR="$BUY_PRICE_RULES_ERROR" \
     python3 - "$OUTPUT_FILE" "$COIN" "$ORDER_ID" "$COIN_SOURCE" <<'PY'
 import json
 import os
 import re
 import sys
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from zipfile import BadZipFile
 
 import openpyxl
 
-output_file, coin, order_id, source = sys.argv[1:]
+_, coin, order_id, source = sys.argv[1:]
 rates = {
     1: Decimal("0.0825"),
     2: Decimal("0.0725"),
@@ -651,32 +760,7 @@ if not isinstance(buy_result, dict):
     sys.exit(0)
 print(f"BUY API HTTP status code: {os.environ.get('BUY_HTTP_STATUS', 'unavailable')} | Bitkub error code: {buy_response.get('error', 'unavailable')}")
 
-try:
-    workbook = openpyxl.load_workbook(output_file, read_only=True, data_only=True)
-    sheet = workbook["Latest Snapshot"]
-except (OSError, KeyError, BadZipFile, openpyxl.utils.exceptions.InvalidFileException) as exc:
-    print(f"⚠️ BUY สำเร็จแล้ว แต่เปิด Latest Snapshot เพื่ออ่าน TIER ไม่ได้: {exc}")
-    print("ไม่แสดงราคาเป้าหมายหรือคำสั่งขาย")
-    sys.exit(0)
-
-headers = [str(value).strip().upper() if value is not None else "" for value in next(
-    sheet.iter_rows(min_row=2, max_row=2, values_only=True)
-)]
-try:
-    coin_col = headers.index("ชื่อเหรียญ")
-    tier_col = headers.index("TIER")
-except ValueError:
-    print("⚠️ BUY สำเร็จแล้ว แต่ Latest Snapshot ไม่มีคอลัมน์ชื่อเหรียญหรือ TIER")
-    print("ไม่แสดงราคาเป้าหมายหรือคำสั่งขาย")
-    sys.exit(0)
-
-tier_value = None
-for row in sheet.iter_rows(min_row=3, values_only=True):
-    if coin_col < len(row) and str(row[coin_col] or "").strip().upper() == coin.upper():
-        tier_value = row[tier_col] if tier_col < len(row) else None
-        break
-
-tier_match = re.fullmatch(r"T?([1-4])(?:\.0+)?", str(tier_value or "").strip().upper())
+tier_match = re.fullmatch(r"T?([1-4])(?:\.0+)?", os.environ.get("BUY_TIER", "").strip().upper())
 tier = int(tier_match.group(1)) if tier_match else None
 source_label = str(source).strip().capitalize() or "Unknown"
 print(f"AKA: {coin}")
@@ -787,11 +871,27 @@ else:
 
 average_cost = total_cost / total_quantity
 if tier is None:
-    print(f"⚠️ ไม่พบ TIER 1-4 ที่ถูกต้องสำหรับ {coin} ใน Latest Snapshot")
+    print(f"⚠️ ไม่พบ TIER 1-4 ที่ถูกต้องสำหรับ {coin} ใน REF Sheet")
     print("ไม่แสดงราคาเป้าหมายหรือคำสั่งขาย")
     sys.exit(0)
-target_price = average_cost * (Decimal("1") + rates[tier])
-target_text = format(target_price.normalize(), "f")
+rules = os.environ.get("BUY_PRICE_RULES", "").split("\t")
+if len(rules) != 3:
+    print(f"⚠️ อ่าน price_scale/price_step ของคู่ {coin}_THB ไม่ได้: {os.environ.get('BUY_PRICE_RULES_ERROR', 'metadata unavailable')}")
+    print("ไม่แสดงราคาเป้าหมายหรือคำสั่งขาย")
+    sys.exit(0)
+try:
+    price_scale = int(rules[1])
+    price_step = Decimal(rules[2])
+    target_price = average_cost * (Decimal("1") + rates[tier])
+    target_price = (
+        (target_price / price_step).to_integral_value(rounding=ROUND_CEILING)
+        * price_step
+    ).quantize(Decimal(1).scaleb(-price_scale))
+except (InvalidOperation, ValueError, ArithmeticError) as exc:
+    print(f"⚠️ price_scale/price_step ของคู่ {coin}_THB ไม่ถูกต้อง: {exc}")
+    print("ไม่แสดงราคาเป้าหมายหรือคำสั่งขาย")
+    sys.exit(0)
+target_text = format(target_price, f".{price_scale}f")
 print(f"ต้นทุนเฉลี่ยรวมค่าธรรมเนียม: {format(average_cost, 'f')} THB/{coin}")
 print(f"Target Price T{tier}: {target_text} THB")
 print(f'"SELL/{coin}/L={target_text}/100%"')

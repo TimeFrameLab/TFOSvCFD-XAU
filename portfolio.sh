@@ -2,7 +2,7 @@
 # ============================================================
 # portfolio.sh — แสดง Portfolio จาก Bitkub wallet + ราคาล่าสุด + P/L
 # Usage: ./portfolio.sh
-# Output contract: Currency | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) |
+# Output contract: Currency | Tier | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) |
 # ราคาล่าสุด | มูลค่า (THB) | กำไร/ขาดทุน (หักค่าธรรมเนียม) | %P/L | Remark
 # Currency coin symbols are TradingView links; THB is rendered as plain text.
 # ============================================================
@@ -48,6 +48,22 @@ curl -s "$BASE_URL/api/v3/market/ticker" > "$TMPDIR_PF/tickers.json"
 
 # ดึง symbols source (exchange/broker)
 curl -s "$BASE_URL/api/v3/market/symbols" > "$TMPDIR_PF/symbols.json"
+
+# ดาวน์โหลด REF Sheet เพื่ออ่าน TIER โดยจับคู่ AKA กับ Currency
+REF_SHEET_INPUT="$TMPDIR_PF/reference.xlsx"
+if [[ -n "$REF_SHEET_URL" ]]; then
+  SHEET_ID=$(echo "$REF_SHEET_URL" | sed -n 's|.*/d/\([^/]*\).*|\1|p')
+  if [[ -n "$SHEET_ID" ]] && curl -fsSL \
+    "https://docs.google.com/spreadsheets/d/$SHEET_ID/export?format=xlsx" \
+    -o "$REF_SHEET_INPUT"; then
+    :
+  else
+    echo "⚠️ ดาวน์โหลด REF Sheet จาก REF_SHEET_URL ไม่สำเร็จ; จะแสดง Tier เป็น N/A" >&2
+    rm -f "$REF_SHEET_INPUT"
+  fi
+else
+  echo "⚠️ ไม่พบ REF_SHEET_URL ใน .env; จะแสดง Tier เป็น N/A" >&2
+fi
 
 # หาเหรียญที่มีใน wallet (ไม่รวม THB)
 COINS=$(python3 -c "
@@ -148,6 +164,7 @@ done
 # สร้าง python script
 cat > "$TMPDIR_PF/portfolio.py" << 'PYEOF'
 import sys, json
+from zipfile import BadZipFile
 from urllib.parse import quote
 
 with open(sys.argv[1]) as f:
@@ -158,6 +175,46 @@ with open(sys.argv[3]) as f:
     histories = json.load(f)
 with open(sys.argv[4]) as f:
     symbols_raw = json.load(f)
+
+tiers = {}
+try:
+    import re
+    import openpyxl
+except ImportError:
+    openpyxl = None
+
+if openpyxl is not None and len(sys.argv) > 5:
+    try:
+        workbook = openpyxl.load_workbook(sys.argv[5], read_only=True, data_only=True)
+        sheet = workbook['All-Bitkub-BATCH']
+        headers = [
+            str(value).strip().upper() if value is not None else ''
+            for value in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))
+        ]
+        coin_col = headers.index('AKA')
+        tier_col = headers.index('TIER')
+        for row in sheet.iter_rows(min_row=2, values_only=True):
+            if coin_col >= len(row) or tier_col >= len(row):
+                continue
+            coin = str(row[coin_col] or '').strip().upper()
+            tier_match = re.fullmatch(
+                r'T?([1-4])(?:\.0+)?',
+                str(row[tier_col] or '').strip().upper(),
+            )
+            if coin and tier_match:
+                tiers[coin] = f'T{tier_match.group(1)}'
+    except (
+        OSError,
+        KeyError,
+        StopIteration,
+        ValueError,
+        BadZipFile,
+        openpyxl.utils.exceptions.InvalidFileException,
+    ) as exc:
+        print(f'⚠️ อ่าน REF Sheet หรือ AKA/TIER ไม่สำเร็จ; จะแสดง Tier เป็น N/A: {exc}', file=sys.stderr)
+        tiers = {}
+elif openpyxl is None:
+    print('⚠️ openpyxl ไม่พร้อมใช้งาน; จะแสดง Tier เป็น N/A', file=sys.stderr)
 
 tickers = {t['symbol']: t for t in tickers_list if isinstance(t, dict)}
 sources = {s.get('symbol','').replace('_THB','').upper(): s.get('source','exchange')
@@ -238,16 +295,17 @@ for item in data:
         else:
             remark = 'No OH*'
 
-    rows.append((cur, total, avg_price, last, value, pnl, pnl_pct, remark))
+    tier = tiers.get(cur, 'N/A')
+    rows.append((cur, tier, total, avg_price, last, value, pnl, pnl_pct, remark))
 
-rows.sort(key=lambda x: x[4], reverse=True)
-total_value = sum(r[4] for r in rows) + thb_total
-total_pnl   = sum(r[5] for r in rows if r[5] is not None)
+rows.sort(key=lambda x: x[5], reverse=True)
+total_value = sum(r[5] for r in rows) + thb_total
+total_pnl   = sum(r[6] for r in rows if r[6] is not None)
 
 print(f'## 💼 Portfolio ({len(rows)} เหรียญ)\n')
-print(f'| Currency | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) | ราคาล่าสุด | มูลค่า (THB) | กำไร/ขาดทุน (หักค่าธรรมเนียม) | %P/L | Remark |')
-print(f'|:---|---:|---:|---:|---:|---:|---:|:---|')
-for cur, total, avg_price, last, val, pnl, pnl_pct, remark in rows:
+print(f'| Currency | Tier | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) | ราคาล่าสุด | มูลค่า (THB) | กำไร/ขาดทุน (หักค่าธรรมเนียม) | %P/L | Remark |')
+print(f'|:---|:---:|---:|---:|---:|---:|---:|---:|:---|')
+for cur, tier, total, avg_price, last, val, pnl, pnl_pct, remark in rows:
     avg_str  = f'{avg_price:,.4f}'  if avg_price else 'N/A'
     last_str = f'{last:,.4f}'      if last > 0  else 'N/A'
     val_str  = f'{val:,.2f}'       if val  > 0  else 'N/A'
@@ -258,9 +316,9 @@ for cur, total, avg_price, last, val, pnl, pnl_pct, remark in rows:
         pnl_str = 'N/A'
         pct_str = 'N/A'
     currency_cell = f'[{cur}](https://www.tradingview.com/chart/?symbol={quote(cur + "THB", safe="")})'
-    print(f'| {currency_cell} | {total:,.4f} | {avg_str} | {last_str} | {val_str} | {pnl_str} | {pct_str} | {remark} |')
+    print(f'| {currency_cell} | {tier} | {total:,.4f} | {avg_str} | {last_str} | {val_str} | {pnl_str} | {pct_str} | {remark} |')
 if thb_total > 0:
-    print(f'| **THB** | {thb_total:,.2f} | — | 1.0000 | {thb_total:,.2f} | — | — | — |')
+    print(f'| **THB** | — | {thb_total:,.2f} | — | 1.0000 | {thb_total:,.2f} | — | — | — |')
 
 pnl_sign = '+' if total_pnl >= 0 else ''
 print(f'\n**รวมมูลค่าพอร์ต: {total_value:,.2f} THB** | **กำไร/ขาดทุนรวม: {pnl_sign}{total_pnl:,.2f} THB**')
@@ -268,4 +326,4 @@ print(f'\n> \* Broker Coin = Broker coin ไม่มี Order History ใน Bi
 print(f'> \* No OH = No Order History found; may be from Airdrop/Reward or external transfer.')
 PYEOF
 
-python3 "$TMPDIR_PF/portfolio.py" "$TMPDIR_PF/balances.json" "$TMPDIR_PF/tickers.json" "$TMPDIR_PF/histories.json" "$TMPDIR_PF/symbols.json"
+python3 "$TMPDIR_PF/portfolio.py" "$TMPDIR_PF/balances.json" "$TMPDIR_PF/tickers.json" "$TMPDIR_PF/histories.json" "$TMPDIR_PF/symbols.json" "$REF_SHEET_INPUT"
