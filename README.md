@@ -118,6 +118,7 @@ START
 | `START` | พิมพ์ในแชท | เริ่มต้นการทำงาน → REVIEW guideline → รอคำสั่งถัดไป |
 | `UPDATE` | รัน `./update.sh` | ดาวน์โหลดข้อมูลล่าสุด + ประมวลผล MPTM + ตรวจ Liquidity |
 | `MONEY` | รัน `./trade.sh "MONEY"` | ตรวจยอดเงินบาทคงเหลือ |
+| `TARGET/COIN` | รัน `./trade.sh "TARGET/BTC"` | ตรวจยอดเหรียญ คำนวณ Target Price ตาม TIER และเสนอคำสั่ง Limit Sell (ไม่ส่งคำสั่งขาย) |
 | `PORTFOLIO` | รัน `./portfolio.sh` | แสดง Portfolio + ราคาซื้อเฉลี่ย + กำไร/ขาดทุน + %P/L + Remark (Broker Coin* / No OH*) |
 | `CANDIDATE` | ค้นหาใน Excel | แสดงเหรียญที่ผ่าน PRE-ENTRY-Like Pattern (6 เกณฑ์) |
 | `REVIEW` | พิมพ์ในแชท | อ่าน guideline อีกครั้งและพร้อมรับคำสั่งใหม่ |
@@ -182,6 +183,15 @@ START
 - ถ้าไม่พบไฟล์ Excel, หาเหรียญไม่พบในไฟล์ (`NOT_FOUND`) หรืออ่านไฟล์/ชีทไม่ได้ (`ERROR`) สคริปต์จะแจ้งเตือนว่าไม่สามารถตรวจสอบ MPTM ได้ และถามยืนยันก่อนซื้อ
 - เมื่อต้องยืนยันแล้วผู้ใช้ตอบอย่างอื่นนอกจาก `y` หรือ `Y` สคริปต์จะยกเลิกคำสั่ง; กรณี Broker Coin และสถานะ MPTM ที่ต้องยืนยัน อาจมีคำถามยืนยันสองครั้ง
 
+**หลังจาก BUY สำเร็จ:**
+- เมื่อ Bitkub รับคำสั่งและส่ง Order ID กลับมา สคริปต์จะค้นหารายการซื้อที่จับคู่แล้วของ Order ID นั้นจาก `GET /api/v3/market/my-order-history` และใช้ค่าจากทุก fill ที่พบ
+- อ่าน `TIER` ของเหรียญจาก `Latest Snapshot` และใช้ `Source` จาก Bitkub symbols; คำนวณต้นทุนเฉลี่ยต่อเหรียญรวมค่าธรรมเนียมที่จ่ายจริง แล้วคำนวณ `Target Price = ต้นทุนเฉลี่ย × (1 + %TIER)`
+- อัตราเป้าหมายคือ `T1=8.25%`, `T2=7.25%`, `T3=6.75%`, `T4=5.75%` และจะแสดงคำสั่ง Limit Sell `SELL/<COIN>/L=<Target Price>/100%` ตาม TIER ของเหรียญ
+- ถ้าไม่พบ fill สคริปต์ตรวจ `GET /api/v3/market/my-open-orders` ด้วย Order ID เพื่อแยกคำสั่งที่ยังรอจับคู่ หากยังเปิดอยู่จะแจ้งสถานะและไม่เสนอคำสั่งขาย
+- ถ้า Order History ไม่มีรายการหรือส่ง error code (เช่น Broker Coin ที่ตอบ error 61) แต่ BUY API ตอบ `error=0` และมี `amt`, `fee`, `cre`, `rec` ที่ยืนยันยอดซื้อจริงครบ สคริปต์คำนวณต้นทุนจากผลตอบกลับ BUY (`(amt + fee - cre) / rec`) และเสนอคำสั่งขายตาม TIER พร้อมแสดง error code ที่ได้รับ
+- หาก BUY API ตอบ error ที่ไม่ใช่ 0 จะแจ้งว่าคำสั่งซื้อไม่สำเร็จพร้อม HTTP status code และ Bitkub error code; หาก API รับคำสั่งแต่ไม่มี fill และไม่มีข้อมูลผลซื้อจริงครบ จะไม่สร้าง Target Price/คำสั่งขายจากข้อมูลที่เดา
+- อ้างอิง error handling: [Bitkub API Error Handling](https://api.bitkub.com/docs/errors) และ [REST v3](https://github.com/bitkub/bitkub-official-api-docs/blob/master/rest-v3.md)
+
 ### ส่งคำสั่งขาย (SELL)
 รูปแบบคำสั่งคือ `./trade.sh "SELL/COIN/L=PRICE/PERCENT"` โดย `PERCENT` คือเปอร์เซ็นต์ของยอดเหรียญที่พร้อมใช้งานใน wallet
 
@@ -196,6 +206,16 @@ START
 ./trade.sh "SELL/BTC/L=2000000/100%"
 ```
 *ขาย BTC 100% ของยอดที่พร้อมใช้งาน ในราคา 2,000,000 THB*
+
+### คำนวณราคาเป้าหมายจากเหรียญในพอร์ต (TARGET)
+```bash
+./trade.sh "TARGET/BTC"
+```
+ตรวจยอด BTC พร้อมขายจาก Bitkub v4 `wallet/balances`, อ่าน TIER จาก `Latest Snapshot`, และคำนวณต้นทุนเฉลี่ยรวมค่าธรรมเนียมจากประวัติคำสั่งซื้อ Bitkub v3 ก่อนเสนอคำสั่ง Limit Sell รูปแบบ `SELL/BTC/L=<Target Price>/100%` โดย **ไม่ส่งคำสั่งขายอัตโนมัติ**
+
+- ถ้าไม่พบยอด หรือยอดคงเหลือเป็นศูนย์ จะแจ้งว่าอาจไม่มีเหรียญในพอร์ต; ถ้ามียอดแต่ถูก reserve ไว้ทั้งหมด จะแสดงยอด reserve และไม่เสนอคำสั่งขาย
+- หาก API ล้มเหลว จะแสดง HTTP status code และ Bitkub error code เพื่อแยกจากกรณีไม่มีเหรียญ
+- ถ้ามีเหรียญแต่ไม่มี Order History/ข้อมูลต้นทุนที่เชื่อถือได้ เช่น Broker Coin (error 61) หรือเหรียญโอนเข้า จะไม่เดา Target Price; แนะนำตรวจต้นทุนจากแหล่งที่มาแล้วใช้ `SELL/COIN/L=PRICE/100%` ระบุราคาเอง
 
 ## 📁 โครงสร้างโครงการ
 
@@ -264,7 +284,7 @@ TFOSvX/
               ↓
 3. ตรวจสอบสถานะ → BUY CONFIRMED / EARLY/WATCH / PULLBACK / WAIT
               ↓
-4. ดำเนินการ → MONEY / PORTFOLIO / CANDIDATE / BUY / SELL
+4. ดำเนินการ → MONEY / PORTFOLIO / CANDIDATE / TARGET / BUY / SELL
               ↓
 5. REVIEW → ทบทวน guideline และเริ่มรอบใหม่
 ```

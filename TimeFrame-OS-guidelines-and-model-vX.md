@@ -62,6 +62,7 @@ MPTM/
 ┌─────────────────────────────────────────────────────────┐
 │ 5. คำสั่งเพิ่มเติม                                    │
 │    MONEY → ตรวจยอดเงิน                               │
+│    TARGET/COIN → คำนวณ Target Price จาก Portfolio    │
 │    PORTFOLIO → แสดง Portfolio + ราคาซื้อเฉลี่ย + P/L + Remark                         │
 │    CANDIDATE → แสดง PRE-ENTRY-Like Pattern CANDIDATE   │
 │    REVIEW → อ่าน guideline อีกครั้ง                  │
@@ -76,6 +77,7 @@ MPTM/
 | `START` | พิมพ์ในแชท | เริ่มต้นการทำงาน → REVIEW guideline → รอคำสั่งถัดไป |
 | `UPDATE` | รัน `./update.sh` | ดาวน์โหลดข้อมูลล่าสุด + ประมวลผล MPTM + ตรวจ Liquidity |
 | `MONEY` | รัน `./trade.sh "MONEY"` | ตรวจยอดเงินบาทคงเหลือ |
+| `TARGET/COIN` | รัน `./trade.sh "TARGET/BTC"` | ตรวจยอดเหรียญ คำนวณ Target Price ตาม TIER และเสนอคำสั่ง SELL (ไม่ส่งคำสั่งจริง) |
 | `PORTFOLIO` | รัน `./portfolio.sh` | แสดง Portfolio + ราคาซื้อเฉลี่ย + กำไร/ขาดทุน + %P/L + Remark (Broker Coin* / No OH*) |
 | `CANDIDATE` | ค้นหาใน Excel | แสดงเหรียญที่ผ่าน PRE-ENTRY-Like Pattern (6 เกณฑ์) |
 | `REVIEW` | พิมพ์ในแชท | อ่าน guideline อีกครั้งและพร้อมรับคำสั่งใหม่ |
@@ -94,7 +96,7 @@ MPTM/
 ```
 ผู้ใช้: START
 ระบบ: กำลังทบทวน TimeFrame-OS-guidelines-and-model-vX.md...
-ระบบ: ✅ พร้อมรับคำสั่ง (UPDATE / MONEY / PORTFOLIO / CANDIDATE / BUY / SELL)
+ระบบ: ✅ พร้อมรับคำสั่ง (UPDATE / MONEY / PORTFOLIO / CANDIDATE / TARGET / BUY / SELL)
 ```
 
 ### 1. ปรัชญาและหลักการวิเคราะห์คัดกรอง (Core Decision Framework)
@@ -478,8 +480,9 @@ BITKUB_API_SECRET=your_api_secret_here
 ```
 
 * trade.sh โหลด `.env` อัตโนมัติทุกครั้งที่รัน ไม่ต้อง `export` เอง
-* API ใช้ Bitkub REST v3 (`place-bid` / `place-ask`) + v4 (`wallet/balances`)
+* API ใช้ Bitkub REST v3 (`place-bid` / `place-ask` / `my-order-history` / `my-open-orders`) + v4 (`wallet/balances`)
 * Signature: HMAC SHA-256 format `{timestamp}{METHOD}{path}{body}`
+* Error handling: ดู [Bitkub API Error Handling](https://api.bitkub.com/docs/errors); แสดง HTTP status code และ Bitkub JSON `error` code ที่ API ตอบกลับ โดยไม่แทนค่าหรือกลบข้อผิดพลาด
 
 ### คำสั่ง `trade.sh` ที่รองรับ
 
@@ -490,8 +493,23 @@ BITKUB_API_SECRET=your_api_secret_here
 | `./trade.sh "SELL/BTC/L=M/100%"` | ขาย BTC ราคาตลาด 100% ของยอดที่พร้อมใช้งานใน wallet |
 | `./trade.sh "SELL/BTC/L=2000000/100%"` | ขาย BTC ราคา Limit 2,000,000 จำนวน 100% ของยอดที่พร้อมใช้งาน |
 | `./trade.sh "MONEY"` | ตรวจยอดเงินบาทคงเหลือ (Available / Reserved / Total) |
+| `./trade.sh "TARGET/BTC"` | ตรวจยอด BTC พร้อมขายและเสนอ Target Price/คำสั่ง Limit Sell ตาม TIER โดยไม่ส่งคำสั่งขาย |
 
 Portfolio ใช้สคริปต์แยกต่างหาก: `./portfolio.sh`
+
+### คำสั่ง TARGET — ราคาเป้าหมายจากเหรียญในพอร์ต
+
+```bash
+./trade.sh "TARGET/BTC"
+```
+
+คำสั่งนี้เป็นการอ่านข้อมูลเท่านั้น: ตรวจยอด BTC จาก `GET /api/v4/wallet/balances?symbol=BTC`, อ่าน `TIER` จากชีท `Latest Snapshot` และ `Source` จาก Bitkub symbols, จากนั้นดึง Order History แบบแบ่งหน้าเพื่อคำนวณต้นทุนเฉลี่ยรวมค่าธรรมเนียมจากรายการ BUY ที่จับคู่แล้วทั้งหมด ใช้สูตรและอัตรา TIER เดียวกับส่วน “หลังจากส่งคำสั่ง BUY สำเร็จ” ข้างต้น และแสดงยอดพร้อมขายกับคำสั่งแนะนำ `SELL/BTC/L=<Target Price>/100%` โดยไม่ส่งคำสั่งขาย
+
+- ถ้า balance API สำเร็จแต่ไม่พบ BTC หรือยอดรวมเป็นศูนย์ จะแจ้งว่าอาจไม่มีเหรียญในพอร์ต พร้อม HTTP status และ Bitkub error code
+- ถ้ายอดรวมมากกว่าศูนย์แต่ `available=0` จะแจ้งยอดที่ถูก reserve และไม่แนะนำคำสั่ง SELL จนกว่าจะมี available balance
+- ถ้า balance/history API ผิดพลาด จะแสดง HTTP status code และ Bitkub error code; ห้ามตีความ API error ว่าไม่มีเหรียญ
+- ถ้ามียอดพร้อมขายแต่ไม่มีประวัติ BUY ที่ตรวจสอบได้ เช่น Broker Coin/error 61 หรือเหรียญที่โอนเข้า จะไม่คาดเดาต้นทุนหรือ Target Price; แนะนำตรวจต้นทุนจากแหล่งที่มา แล้วส่ง `SELL/COIN/L=PRICE/100%` ด้วยราคาที่ผู้ใช้กำหนดเอง
+- คำสั่ง TARGET ไม่วาง/ส่งคำสั่งขายอัตโนมัติ และ `100%` หมายถึง 100% ของยอด available ที่พร้อมขาย ไม่รวมยอด reserved
 
 **Remark ในคอลัมน์ Portfolio:**
 - **Broker Coin\*** — Broker coin ไม่มี Order History ใน Bitkub API (error 61)
@@ -505,6 +523,42 @@ Portfolio ใช้สคริปต์แยกต่างหาก: `./portf
 * **L=M** → `typ=market, rat=0` | **L=ราคา** → `typ=limit, rat=ราคา`
 * **Limit Sell** — ใช้สำหรับกำหนดเป้าหมายในราคาที่ต้องการขาย (Take Profit)
 * ใช้ได้กับทุกเหรียญที่ Bitkub รองรับ เพียงเปลี่ยน `BTC` เป็นชื่อเหรียญที่ต้องการ
+
+### หลังจากส่งคำสั่ง BUY สำเร็จ: Target Price ตาม TIER
+
+เมื่อ `POST /api/v3/market/place-bid` ตอบกลับ `error=0` และมี Order ID แล้ว `trade.sh` แสดง error code และค้นหารายการ BUY ที่จับคู่แล้วของ Order ID ดังกล่าวจาก `GET /api/v3/market/my-order-history` โดยใช้ `sym=<COIN>_THB`, `p=1`, `lmt=100` และกรอง `order_id` ให้ตรงกับคำสั่งที่เพิ่งส่ง ไม่รวมรายการซื้ออื่นของเหรียญเดียวกัน
+
+สำหรับแต่ละ fill ในประวัติ:
+
+- มูลค่าที่ซื้อ (THB) = `amount`
+- จำนวนเหรียญที่ได้รับก่อนค่าธรรมเนียม = `amount / rate`
+- ค่าธรรมเนียมสุทธิ (THB) = `fee - credit`
+- ต้นทุนเฉลี่ยต่อเหรียญรวมค่าธรรมเนียม = `ผลรวม(amount + fee - credit) / ผลรวม(amount / rate)`
+
+ถ้าไม่พบ fill ให้ตรวจ `GET /api/v3/market/my-open-orders` ด้วย Order ID ก่อน หากยังเปิดอยู่ให้แจ้งว่ารอจับคู่และไม่เสนอคำสั่งขาย หาก Order History ให้ error code หรือไม่มีรายการ แต่ BUY API ยืนยัน `error=0` และมีข้อมูลผลซื้อจริงครบ (`amt`, `fee`, `cre`, `rec` โดย `rec > 0`) ให้ใช้ต้นทุนเฉลี่ย `(amt + fee - cre) / rec` แสดง HTTP status code และ Bitkub error code ที่เกี่ยวข้อง แล้วเสนอคำสั่งขายตาม TIER ได้ หากไม่มีข้อมูลครบหรือ API ตรวจพบว่า order ยังเปิดอยู่ ห้ามสร้างราคา/คำสั่งขายจากราคาเสนอหรือยอดคำสั่งที่ยังไม่จับคู่ ถ้า BUY API ตอบ error ที่ไม่ใช่ 0 ให้แจ้งว่าคำสั่งซื้อไม่สำเร็จพร้อม HTTP status code และ Bitkub error code และไม่เสนอคำสั่งขาย
+
+`TIER` อ่านจากแถวของเหรียญในชีท `Latest Snapshot`; `Source` อ่านจาก Bitkub `/api/v3/market/symbols` และแสดงเป็น `Broker` หรือ `Exchange`. อัตราและสูตรราคาเป้าหมาย:
+
+| TIER | %Target Price | สูตร |
+|:---:|---:|---|
+| T1 | 8.25% | ต้นทุนเฉลี่ยรวมค่าธรรมเนียม × 1.0825 |
+| T2 | 7.25% | ต้นทุนเฉลี่ยรวมค่าธรรมเนียม × 1.0725 |
+| T3 | 6.75% | ต้นทุนเฉลี่ยรวมค่าธรรมเนียม × 1.0675 |
+| T4 | 5.75% | ต้นทุนเฉลี่ยรวมค่าธรรมเนียม × 1.0575 |
+
+รูปแบบผลลัพธ์:
+
+```text
+AKA: BTC
+TIER: 1
+Source: Broker
+%Target Price: T1=8.25%, T2=7.25%, T3=6.75%, T4=5.75%
+ต้นทุนเฉลี่ยรวมค่าธรรมเนียม: <ราคา>/BTC
+Target Price T1: <ราคา> THB
+"SELL/BTC/L=<ราคา>/100%"
+```
+
+การตอบรับคำสั่ง BUY (`error=0`) หมายถึง API รับคำสั่งแล้ว ไม่ได้ยืนยันว่าคำสั่งถูกจับคู่ ต้องตรวจ Open Orders และข้อมูลผลซื้อจริงก่อนเสนอคำสั่งขาย หากไม่มี fill ในประวัติและข้อมูลผลซื้อจริงจาก BUY API ไม่ครบ, order ยังเปิดอยู่ หรือไม่พบ TIER ที่ถูกต้อง ให้แจ้งสาเหตุและไม่แสดง Target Price/คำสั่งขาย หาก API ตอบ error ที่ไม่ใช่ 0 ให้แสดง error code และแจ้งว่าคำสั่งซื้อไม่สำเร็จ ห้ามคำนวณจากราคาเสนอซื้อหรือยอดเงินที่ยังไม่ถูกจับคู่
 
 ### ⚠️ การแจ้งเตือนและยืนยันก่อนส่งคำสั่งซื้อ (BUY Warning & Confirmation)
 
