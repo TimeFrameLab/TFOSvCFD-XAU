@@ -235,9 +235,8 @@ TFOSvX/
 ├── examples/
 │   ├── All-Bitkub-BATCH-starter.gs           ← ตัวช่วยสร้างหัวตารางและเขียนข้อมูล
 │   └── All-Bitkub-MTFS.gs                    ← สคริปต์ MTFS เต็ม: ดึงข้อมูลและอัปเดตทุก 1 ชั่วโมง
-└── downloads/                                ← ไฟล์ที่สร้างระหว่างใช้งาน (ไม่ติดตามโดย Git)
-    ├── All-Bitkub-Batch-Log-vX.xlsx          ← ข้อมูลที่ดาวน์โหลดจาก Reference Sheet
-    └── All-Bitkub-Batch-Log-vX_output.xlsx   ← รายงาน Excel ที่ประมวลผลแล้ว
+└── downloads/                                ← โฟลเดอร์ผลลัพธ์ (Git เก็บเฉพาะ .gitkeep เพื่อคงโฟลเดอร์ว่างหลัง clone)
+    └── .gitkeep                              ← placeholder เปล่า; ไฟล์ข้อมูลที่สร้างระหว่างใช้งานไม่ติดตามโดย Git
 ```
 
 ## 🧠 เกณฑ์ MPTM (สรุป)
