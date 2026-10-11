@@ -17,7 +17,7 @@ REF_SHEET_URL=<Reference Sheet URL ของคุณ>
 - ดึง Sheet ID จาก URL (extract จาก pattern `/d/[SHEET_ID]`)
 - ใช้ Sheet ID นี้ในการดาวน์โหลดข้อมูลจาก Reference Sheet (REF Sheet)
 - หากไม่ได้ตั้งค่า `REF_SHEET_URL` คำสั่ง `UPDATE` จะแสดงข้อความให้ตั้งค่าและหยุดทำงานด้วยรหัสข้อผิดพลาด โดยไม่ดาวน์โหลดชีตหรือประมวลผลรายงาน
-- คำสั่ง `PORTFOLIO` ยังคงแสดงตารางได้ โดยแสดง Tier เป็น `N/A` พร้อมคำเตือน; คำสั่ง `TARGET` จะแจ้งว่าอ่าน Tier ไม่ได้และไม่แสดง Target Price หรือคำสั่งขายแนะนำ
+- คำสั่ง `PORTFOLIO` ทำงานต่อได้ โดยแสดง Tier เป็น `N/A` เมื่อไม่มี `REF_SHEET_URL` หรืออ่าน/จับคู่ Tier จาก REF Sheet ไม่ได้; คำสั่ง `TARGET` จะแจ้งว่าอ่าน Tier ไม่ได้และไม่แสดง Target Price หรือคำสั่งขายแนะนำ
 
 **โครงสร้างไฟล์:**
 ```
