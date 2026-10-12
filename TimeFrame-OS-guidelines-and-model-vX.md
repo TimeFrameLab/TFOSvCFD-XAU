@@ -79,6 +79,7 @@ MPTM/
 |:---|:---|:---|
 | `START @README.md` | พิมพ์ในแชท | อ่าน README และ REVIEW guideline ให้ครบ ยึดรูปแบบคำตอบตาม guideline อย่างเคร่งครัด แล้วรอคำสั่งถัดไป |
 | `UPDATE` | รัน `./update.sh` | ดาวน์โหลดข้อมูลล่าสุด + ประมวลผล MPTM + ตรวจ Liquidity |
+| `UPDATE/<AKA>-<AKA>-...` | เช่น `./update.sh UPDATE/BTC-ETH-SOL` | อัปเดตข้อมูลและ Workbook ตามปกติ แต่แสดงเฉพาะเหรียญที่ระบุในตาราง `🔵 SPECIFIED COIN` |
 | `MONEY` | รัน `./trade.sh "MONEY"` | ตรวจยอดเงินบาทคงเหลือ |
 | `TARGET/COIN` | รัน `./trade.sh "TARGET/BTC"` | ตรวจยอดเหรียญ คำนวณ Target Price ตาม TIER และเสนอคำสั่ง SELL (ไม่ส่งคำสั่งจริง) |
 | `CANCEL/COIN` | รัน `./cancel.sh "CANCEL/BTC"` | ตรวจ Open Orders และเสนอคำสั่งยกเลิกราย Order ID โดยไม่ส่งคำขอ |
@@ -96,13 +97,13 @@ MPTM/
 1. อ่าน `README.md` และ REVIEW เนื้อหาใน `TimeFrame-OS-guidelines-and-model-vX.md` ให้ครบ โดยเฉพาะกฎการทำงานและ Required Answer Format
 2. ใช้ guideline เป็นมาตรฐานหลักสำหรับการวิเคราะห์และรูปแบบการแสดงผลทุกคำสั่งที่เกี่ยวข้อง ห้ามละหัวข้อ บรรทัดบังคับ ลำดับข้อมูล หัวคอลัมน์ หรือลิงก์ที่กำหนด และห้ามคาดเดาข้อมูลที่ไม่มี
 3. ตรวจสอบสถานะระบบและการตั้งค่า `.env` ตามที่จำเป็น โดยไม่เปิดเผยค่าความลับ
-4. ตอบรับว่า REVIEW แล้วเมื่ออ่านไฟล์ครบจริง จากนั้นรอรับคำสั่ง เช่น `UPDATE`, `MONEY`, `PORTFOLIO`, `CANDIDATE`, `TARGET`, `CANCEL`, หรือคำสั่งซื้อขาย หากอ่านไฟล์ไม่ได้ต้องแจ้งข้อจำกัดและห้ามอ้างว่า REVIEW ครบแล้ว
+4. ตอบรับว่า REVIEW แล้วเมื่ออ่านไฟล์ครบจริง จากนั้นรอรับคำสั่ง เช่น `UPDATE`, `UPDATE/BTC-ETH-SOL`, `MONEY`, `PORTFOLIO`, `CANDIDATE`, `TARGET`, `CANCEL`, หรือคำสั่งซื้อขาย หากอ่านไฟล์ไม่ได้ต้องแจ้งข้อจำกัดและห้ามอ้างว่า REVIEW ครบแล้ว
 
 **ตัวอย่างการใช้งาน**:
 ```
 ผู้ใช้: START @README.md
 ระบบ: กำลังทบทวน TimeFrame-OS-guidelines-and-model-vX.md...
-ระบบ: ✅ พร้อมรับคำสั่ง (UPDATE / MONEY / PORTFOLIO / CANDIDATE / TARGET / CANCEL / BUY / SELL)
+ระบบ: ✅ พร้อมรับคำสั่ง (UPDATE / UPDATE/<AKA>-<AKA>-... / MONEY / PORTFOLIO / CANDIDATE / TARGET / CANCEL / BUY / SELL)
 ```
 
 หลัง START ให้ใช้รูปแบบคำตอบและโครงสร้างผลลัพธ์ตาม guideline อย่างเคร่งครัดในทุกคำสั่งที่เกี่ยวข้อง หากข้อมูลที่จำเป็นไม่มีหรือดึงไม่ได้ ให้แจ้งตามกฎข้อมูลไม่พร้อมของคู่มือ ห้ามละรูปแบบหรือสร้างข้อมูลขึ้นเอง
@@ -281,8 +282,10 @@ cd ../Projects/TFOSvX && ./update.sh
 **🔧 การกำหนดเหรียญที่แสดงในหัวข้อ (TARGET_COIN):**
 - แก้บรรทัด `TARGET_COIN = 'BTC'` ใน `update.sh` (บรรทัดที่ 56)
 - เปลี่ยนเป็นเหรียญที่ต้องการ (เช่น `'AAVE'`, `'ATOM'`, `'QNT'`)
-- ระบบจะแสดง LAST_CANDLE, UPDATED, Source ของเหรียญที่กำหนดเท่านั้น
+- คำสั่ง `UPDATE` ปกติจะแสดง LAST_CANDLE, UPDATED, Source ของเหรียญที่กำหนด
 - ถ้าไม่พบเหรียญที่กำหนด จะใช้แถวแรกสุดแทน
+
+รูปแบบการเรียกใช้และรายงานเฉพาะเหรียญสำหรับ `UPDATE/<AKA>-<AKA>-...` กำหนดไว้ในหัวข้อ [คอลัมน์ผลลัพธ์คำสั่ง UPDATE, PORTFOLIO และ CANDIDATE](#คอลัมน์ผลลัพธ์คำสั่ง-update-portfolio-และ-candidate)
 
 **วิธีที่ 2: ดาวน์โหลดด้วย curl โดยตรง**
 เนื่องจาก Reference Sheet (REF Sheet) ต้นทางเป็น Public สามารถดาวน์โหลดโดยตรงผ่าน `curl` ได้เลยโดยไม่ต้องใช้ credentials:
@@ -401,6 +404,18 @@ Source      : <แหล่งข้อมูลที่ใช้ เช่น 
 5. `⚪ WAIT/RETEST — n เหรียญ` — แสดงเฉพาะหัวข้อกับจำนวน ไม่ต้องแสดงรายชื่อหรือตาราง
 
 ชื่อเหรียญในตารางและรายชื่อ `OVEREXTENDED` ต้องเป็น Markdown link ไปยัง TradingView ตัวอย่าง: `[BTC](https://www.tradingview.com/chart/?symbol=BTCTHB)`. ค่า Liquidity ต้องเป็นผลจากการตรวจตลาดล่าสุด และแสดงระดับ `🟢 HIGH`, `🟡 MEDIUM`, `🔴 LOW` หรือ `⚫ N/A`.
+
+#### UPDATE ระบุเหรียญ
+
+เมื่อใช้ `UPDATE/<AKA>-<AKA>-...` เช่น `UPDATE/BTC-ETH-SOL` ให้ดาวน์โหลดและประมวลผลข้อมูลล่าสุด รวมทั้งอัปเดต Workbook ครบทุกเหรียญเช่นเดียวกับ `UPDATE` ปกติ แต่แสดงใน Terminal เฉพาะเหรียญที่ระบุในคำสั่ง:
+
+* ยอมรับ AKA คั่นด้วย `-`; ไม่แยกตัวพิมพ์เล็ก/ใหญ่ และแสดง AKA ซ้ำเพียงครั้งเดียว
+* แสดง `AKA`, `LAST_CANDLE`, `UPDATED` และ `Source` แยกตามแต่ละเหรียญที่พบใน Snapshot ล่าสุด
+* แสดงหัวข้อ `🔵 SPECIFIED COIN — n เหรียญ` โดย `n` คือจำนวน AKA ไม่ซ้ำที่พบใน Snapshot ล่าสุด
+* ใช้คอลัมน์ `เหรียญ | Tier | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity` ตามสูตรคะแนนของ PULLBACK ZONE เรียง CMB จากมากไปน้อย และแสดงทุกรายการที่ระบุและพบโดยไม่จำกัด TOP 10
+* ชื่อเหรียญเป็น Markdown link ไปยัง TradingView และ Liquidity ต้องตรวจจาก Bitkub API ล่าสุด
+* AKA ที่ไม่พบใน Snapshot ล่าสุดให้แจ้งแยกจากตาราง ห้ามใช้ข้อมูลรอบก่อนแทน หากไม่มี AKA ที่พบ ให้แสดง `🔵 SPECIFIED COIN — 0 เหรียญ` พร้อมรายการที่ไม่พบ
+* ไม่แสดงหมวดสถานะอื่นใน Terminal สำหรับคำสั่งนี้; การประมวลผลสถานะและ Workbook ยังคงทำตาม UPDATE ปกติ
 
 #### คำสั่ง PORTFOLIO
 

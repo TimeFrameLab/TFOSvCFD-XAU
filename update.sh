@@ -1,6 +1,24 @@
 #!/bin/bash
 set -e
 
+UPDATE_SPECIFIED_COINS=""
+if [[ $# -gt 1 ]]; then
+  echo "Usage: ./update.sh [UPDATE/<AKA>-<AKA>-...]"
+  exit 1
+elif [[ $# -eq 1 ]]; then
+  if [[ "$1" != UPDATE/* ]]; then
+    echo "❌ รูปแบบคำสั่งไม่ถูกต้อง"
+    echo "Usage: ./update.sh [UPDATE/<AKA>-<AKA>-...]"
+    exit 1
+  fi
+  UPDATE_SPECIFIED_COINS="${1#UPDATE/}"
+  if [[ ! "$UPDATE_SPECIFIED_COINS" =~ ^[A-Za-z0-9._]+(-[A-Za-z0-9._]+)*$ ]]; then
+    echo "❌ รูปแบบรายชื่อเหรียญไม่ถูกต้อง"
+    echo "ตัวอย่าง: ./update.sh UPDATE/BTC-ETH-SOL"
+    exit 1
+  fi
+fi
+
 # โหลดค่าจาก .env
 ENV_FILE="$(dirname "$0")/.env"
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -22,6 +40,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 export $(grep -v '^#' "$ENV_FILE" | xargs)
+export UPDATE_SPECIFIED_COINS
 
 # ดึง Sheet ID จาก REF_SHEET_URL (ต้องมีใน .env)
 if [[ -z "$REF_SHEET_URL" ]]; then
@@ -147,6 +166,12 @@ def classify(d):
 
 for d in rows_data:
     d['STATUS'] = classify(d)
+
+specified_coins = list(dict.fromkeys(
+    coin.strip().upper()
+    for coin in os.environ.get('UPDATE_SPECIFIED_COINS', '').split('-')
+    if coin.strip()
+))
 
 buy_confirmed = [d for d in rows_data if d['STATUS'] == 'BUY_CONFIRMED']
 early_watch   = sorted([d for d in rows_data if d['STATUS'] == 'EARLY_WATCH'],
@@ -336,15 +361,6 @@ def check_liquidity(aka):
     except:
         return '⚫ N/A', 0, 0
 
-print(f"AKA         : {first_aka} 🚀")
-print(f"LAST_CANDLE : {last_candle}")
-print(f"UPDATED     : {updated}")
-print(f"Source      : {source}")
-print(f"")
-print(f"🟢 BUY CONFIRMED — {len(buy_confirmed)} เหรียญ")
-print("| เหรียญ | Tier | Source | RSI(W) | RSI(D) | MACD_D | ราคา | Liquidity |")
-print("|---|---|---|---:|---:|---:|---:|---|")
-
 def format_price(value):
     try: return f"{float(value):,.4f}"
     except: return str(value or '')
@@ -353,51 +369,96 @@ def tv_markdown_link(aka):
     label = re.sub(r'[^A-Za-z0-9._-]', '', str(aka))
     return f"[{label}]({tradingview_url(label)})"
 
+def pullback_metrics(d):
+    volume = [
+        '🟢' if 'BUY' in str(d.get(f'SIGNAL_VOLUME({period})', '')).upper() else '⚪'
+        for period in ['W', 'D', '4H', '1H']
+    ]
+    trend = [
+        '🟢' if str(d.get(f'TREND({period})', '')).upper() == 'UP' else '🔴'
+        for period in ['W', 'D', '4H', '1H']
+    ]
+    combined = [
+        '✅' if volume_signal == '🟢' and trend_signal == '🟢' else '❌'
+        for volume_signal, trend_signal in zip(volume, trend)
+    ]
+    return (
+        f"{''.join(volume)} ({volume.count('🟢')}/4)",
+        f"{''.join(trend)} ({trend.count('🟢')}/4)",
+        f"{''.join(combined)} ({combined.count('✅')}/4)",
+        combined.count('✅'),
+    )
+
 def print_signal_table(coins):
     for d in coins:
         liq, _, _ = check_liquidity(d['AKA'])
         print(f"| {tv_markdown_link(d['AKA'])} | {d.get('TIER','')} | {d.get('Source','')} | {d.get('RSI(W)','')} | {d.get('RSI(D)','')} | {d.get('MACD_HIST_DELTA(W)','')} | {format_price(d.get('PRICE'))} | {liq} |")
 
-if buy_confirmed:
-    print_signal_table(buy_confirmed)
+if specified_coins:
+    rows_by_aka = {}
+    for row in rows_data:
+        rows_by_aka.setdefault(str(row.get('AKA', '')).strip().upper(), row)
+    specified_rows = [rows_by_aka[coin] for coin in specified_coins if coin in rows_by_aka]
+    missing_coins = [coin for coin in specified_coins if coin not in rows_by_aka]
+
+    for d in specified_rows:
+        print(f"AKA         : {d.get('AKA','')}")
+        print(f"LAST_CANDLE : {d.get('LAST_CANDLE','')}")
+        print(f"UPDATED     : {d.get('UPDATED','')}")
+        print(f"Source      : {d.get('Source','')}")
+        print("")
+
+    print(f"🔵 SPECIFIED COIN — {len(specified_rows)} เหรียญ")
+    print("| เหรียญ | Tier | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity |")
+    print("|---|---|---:|---:|---:|---|---|---|---|")
+    scored_rows = [(d, pullback_metrics(d)) for d in specified_rows]
+    for d, metrics in sorted(scored_rows, key=lambda item: -item[1][3]):
+        vol_text, trend_text, cmb_text, _ = metrics
+        liq, _, _ = check_liquidity(d['AKA'])
+        print(f"| {tv_markdown_link(d['AKA'])} | {d.get('TIER','')} | {d.get('RSI(W)','')} | {d.get('RSI(1H)','')} | {format_price(d.get('PRICE'))} | {vol_text} | {trend_text} | {cmb_text} | {liq} |")
+
+    if missing_coins:
+        print("")
+        print("ไม่พบใน Snapshot ล่าสุด: " + ", ".join(missing_coins))
 else:
-    print("| — | — | — | — | — | — | — | — |")
+    print(f"AKA         : {first_aka} 🚀")
+    print(f"LAST_CANDLE : {last_candle}")
+    print(f"UPDATED     : {updated}")
+    print(f"Source      : {source}")
+    print("")
+    print(f"🟢 BUY CONFIRMED — {len(buy_confirmed)} เหรียญ")
+    print("| เหรียญ | Tier | Source | RSI(W) | RSI(D) | MACD_D | ราคา | Liquidity |")
+    print("|---|---|---|---:|---:|---:|---:|---|")
 
-print("")
-print(f"🟡 EARLY/WATCH — {len(early_watch)} เหรียญ (TOP 10)")
-print("| เหรียญ | Tier | Source | RSI(W) | RSI(D) | MACD_D | ราคา | Liquidity |")
-print("|---|---|---|---:|---:|---:|---:|---|")
-print_signal_table(early_watch[:10])
+    if buy_confirmed:
+        print_signal_table(buy_confirmed)
+    else:
+        print("| — | — | — | — | — | — | — | — |")
 
-print("")
-print(f"🟠 PULLBACK ZONE — {len(pullback_zone)} เหรียญ (TOP 10)")
-print("| เหรียญ | Tier | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity |")
-print("|---|---|---:|---:|---:|---|---|---|---|")
-for d in pullback_zone[:10]:
-    price = format_price(d.get('PRICE'))
-    vw  = '🟢' if 'BUY' in str(d.get('SIGNAL_VOLUME(W)','')).upper()  else '⚪'
-    vd  = '🟢' if 'BUY' in str(d.get('SIGNAL_VOLUME(D)','')).upper()  else '⚪'
-    v4h = '🟢' if 'BUY' in str(d.get('SIGNAL_VOLUME(4H)','')).upper() else '⚪'
-    v1h = '🟢' if 'BUY' in str(d.get('SIGNAL_VOLUME(1H)','')).upper() else '⚪'
-    vol_score = sum(1 for v in [vw,vd,v4h,v1h] if v == '🟢')
-    tw  = '🟢' if str(d.get('TREND(W)','')).upper()  == 'UP' else '🔴'
-    td  = '🟢' if str(d.get('TREND(D)','')).upper()  == 'UP' else '🔴'
-    t4h = '🟢' if str(d.get('TREND(4H)','')).upper() == 'UP' else '🔴'
-    t1h = '🟢' if str(d.get('TREND(1H)','')).upper() == 'UP' else '🔴'
-    trend_score = sum(1 for t in [tw,td,t4h,t1h] if t == '🟢')
-    cmb = ['✅' if v=='🟢' and t=='🟢' else '❌' for v,t in zip([vw,vd,v4h,v1h],[tw,td,t4h,t1h])]
-    cmb_score = sum(1 for c in cmb if c == '✅')
-    liq, vol, spd = check_liquidity(d['AKA'])
-    print(f"| {tv_markdown_link(d['AKA'])} | {d.get('TIER','')} | {d.get('RSI(W)','')} | {d.get('RSI(1H)','')} | {price} | {vw}{vd}{v4h}{v1h} ({vol_score}/4) | {tw}{td}{t4h}{t1h} ({trend_score}/4) | {''.join(cmb)} ({cmb_score}/4) | {liq} |")
+    print("")
+    print(f"🟡 EARLY/WATCH — {len(early_watch)} เหรียญ (TOP 10)")
+    print("| เหรียญ | Tier | Source | RSI(W) | RSI(D) | MACD_D | ราคา | Liquidity |")
+    print("|---|---|---|---:|---:|---:|---:|---|")
+    print_signal_table(early_watch[:10])
 
-print("")
-print(f"🔴 OVEREXTENDED — {len(overextended)} เหรียญ")
-if overextended:
-    print(" · ".join(tv_markdown_link(d['AKA']) for d in overextended))
-else:
-    print("ไม่มีเหรียญในสถานะนี้")
-print(f"⚪ WAIT/RETEST — {len(wait_retest)} เหรียญ")
-print(f"")
+    print("")
+    print(f"🟠 PULLBACK ZONE — {len(pullback_zone)} เหรียญ (TOP 10)")
+    print("| เหรียญ | Tier | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity |")
+    print("|---|---|---:|---:|---:|---|---|---|---|")
+    for d in pullback_zone[:10]:
+        vol_text, trend_text, cmb_text, _ = pullback_metrics(d)
+        liq, _, _ = check_liquidity(d['AKA'])
+        print(f"| {tv_markdown_link(d['AKA'])} | {d.get('TIER','')} | {d.get('RSI(W)','')} | {d.get('RSI(1H)','')} | {format_price(d.get('PRICE'))} | {vol_text} | {trend_text} | {cmb_text} | {liq} |")
+
+    print("")
+    print(f"🔴 OVEREXTENDED — {len(overextended)} เหรียญ")
+    if overextended:
+        print(" · ".join(tv_markdown_link(d['AKA']) for d in overextended))
+    else:
+        print("ไม่มีเหรียญในสถานะนี้")
+    print(f"⚪ WAIT/RETEST — {len(wait_retest)} เหรียญ")
+    print(f"")
+
 print(f"✅ Saved: {OUTPUT}")
 PYEOF
 

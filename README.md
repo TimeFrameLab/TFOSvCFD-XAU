@@ -110,7 +110,7 @@ START @README.md
 1. อ่านและ REVIEW เนื้อหาใน `README.md` และ `TimeFrame-OS-guidelines-and-model-vX.md` ให้ครบ โดยเฉพาะกฎการทำงานและ Required Answer Format
 2. ใช้ guideline เป็นมาตรฐานหลักสำหรับการวิเคราะห์และรูปแบบการแสดงผลทุกคำสั่งที่เกี่ยวข้อง ห้ามละหัวข้อ บรรทัดบังคับ ลำดับข้อมูล หัวคอลัมน์ หรือลิงก์ตามที่กำหนด และห้ามแทนข้อมูลจริงด้วยการคาดเดา
 3. ตรวจสอบสถานะระบบและการตั้งค่า `.env` ตามที่จำเป็น โดยไม่เปิดเผยค่าความลับ
-4. ตอบรับว่า REVIEW แล้วเมื่ออ่านไฟล์ครบจริง จากนั้นพร้อมรับคำสั่งถัดไป เช่น `UPDATE`, `MONEY`, `PORTFOLIO`, `CANDIDATE`, `TARGET`, `CANCEL`, หรือคำสั่งซื้อขาย หากอ่านไฟล์ไม่ได้ ต้องแจ้งข้อจำกัดและห้ามอ้างว่า REVIEW ครบแล้ว
+4. ตอบรับว่า REVIEW แล้วเมื่ออ่านไฟล์ครบจริง จากนั้นพร้อมรับคำสั่งถัดไป เช่น `UPDATE`, `UPDATE/BTC-ETH-SOL`, `MONEY`, `PORTFOLIO`, `CANDIDATE`, `TARGET`, `CANCEL`, หรือคำสั่งซื้อขาย หากอ่านไฟล์ไม่ได้ ต้องแจ้งข้อจำกัดและห้ามอ้างว่า REVIEW ครบแล้ว
 
 **ข้อบังคับหลัง START:** ทุกคำตอบหลังจากนั้นต้องใช้รูปแบบใน `TimeFrame-OS-guidelines-and-model-vX.md` อย่างเคร่งครัดในส่วนที่เกี่ยวข้องกับคำสั่งนั้น โดยยึด Required Answer Format และ schema ของแต่ละคำสั่งเป็นหลัก หากข้อมูลที่ guideline บังคับต้องใช้ไม่มีหรือดึงไม่ได้ ให้แจ้งสถานะข้อมูลตามคู่มือแทนการละรูปแบบหรือแต่งข้อมูลขึ้นเอง
 
@@ -120,6 +120,7 @@ START @README.md
 |:---|:---|:---|
 | `START @README.md` | พิมพ์ในแชท | อ่าน README และ REVIEW guideline ให้ครบ ยึดรูปแบบแสดงผลตาม guideline อย่างเคร่งครัด แล้วรอคำสั่งถัดไป |
 | `UPDATE` | รัน `./update.sh` | ดาวน์โหลดข้อมูลล่าสุด + ประมวลผล MPTM + ตรวจ Liquidity |
+| `UPDATE/<AKA>-<AKA>-...` | เช่น `./update.sh UPDATE/BTC-ETH-SOL` | อัปเดตข้อมูลและ Workbook ตามปกติ แต่แสดงเฉพาะเหรียญที่ระบุในตาราง `🔵 SPECIFIED COIN` |
 | `MONEY` | รัน `./trade.sh "MONEY"` | ตรวจยอดเงินบาทคงเหลือ |
 | `TARGET/COIN` | รัน `./trade.sh "TARGET/BTC"` | ตรวจยอดเหรียญ คำนวณ Target Price ตาม TIER และเสนอคำสั่ง Limit Sell (ไม่ส่งคำสั่งขาย) |
 | `CANCEL/COIN` | รัน `./cancel.sh "CANCEL/BTC"` | อ่าน Open Orders และแสดง BUY/SELL ที่ยังเปิด พร้อมคำสั่งยกเลิกราย Order ID โดยไม่ส่งคำขอยกเลิก |
@@ -137,6 +138,12 @@ START @README.md
 ./update.sh
 ```
 
+แสดงรายงานเฉพาะเหรียญที่ต้องการได้โดยระบุ AKA คั่นด้วย `-`:
+
+```bash
+./update.sh UPDATE/BTC-ETH-SOL
+```
+
 **สิ่งที่เกิดขึ้น**:
 1. โหลดค่าจาก `.env`
 2. ดึง Sheet ID จาก `REF_SHEET_URL`
@@ -145,7 +152,7 @@ START @README.md
 5. จัดกลุ่มเหรียญตามสถานะ
 6. ตรวจสอบ Liquidity จาก Bitkub API
 7. สร้างไฟล์ Excel 3 ชีทที่ `downloads/All-Bitkub-Batch-Log-vX_output.xlsx`
-8. แสดงผลสรุปใน Terminal พร้อม LAST_CANDLE, UPDATED, Source ของเหรียญที่กำหนด ในรูปแบบ:
+8. คำสั่ง `UPDATE` ปกติแสดงผลสรุปใน Terminal พร้อม LAST_CANDLE, UPDATED, Source ของเหรียญที่กำหนด ในรูปแบบ:
    ```
    AKA         : <ชื่อเหรียญ> 🚀
    LAST_CANDLE : <timestamp ของ candle ล่าสุด>
@@ -154,10 +161,7 @@ START @README.md
    ```
    ชื่อเหรียญในทุกรายการสถานะใน Terminal และคอลัมน์ชื่อเหรียญใน `Latest Snapshot` / `Master Signal Log` คลิกเพื่อเปิดกราฟ TradingView ได้ (Terminal ต้องรองรับ OSC 8 hyperlinks) เมื่อแสดงรายงานบนแชท ให้ใช้ชื่อเหรียญเป็น Markdown link ไปยังกราฟ TradingView ทุกหมวดและทุกตาราง
 
-**🔧 การกำหนดเหรียญที่แสดงในหัวข้อ:**
-- แก้บรรทัด `TARGET_COIN = 'BTC'` ใน `update.sh` (บรรทัดที่ 56)
-- เปลี่ยนเป็นเหรียญที่ต้องการ (เช่น `'AAVE'`, `'ATOM'`, `'QNT'`)
-- ระบบจะแสดง AKA, LAST_CANDLE, UPDATED, Source ของเหรียญที่กำหนดเท่านั้น
+เมื่อใช้ `UPDATE/<AKA>-<AKA>-...` ระบบยังอัปเดต Workbook สำหรับข้อมูลทั้งหมด แต่รายงานใน Terminal แสดงเฉพาะเหรียญที่ระบุในหัวข้อ `🔵 SPECIFIED COIN` โดยใช้คอลัมน์และคะแนน VOL/TREND/CMB แบบเดียวกับ `PULLBACK ZONE` และเรียง CMB จากมากไปน้อย เหรียญซ้ำจะแสดงครั้งเดียว; เหรียญที่ไม่พบจะแจ้งแยกจากตาราง ส่วน AKA, LAST_CANDLE, UPDATED และ Source แสดงแยกตามเหรียญที่พบ รูปแบบรายละเอียดและกรณีไม่พบให้ยึดตาม guideline
 
 ### ตรวจยอดเงิน
 ตรวจสอบยอดเงินบาทคงเหลือในพอร์ต:
