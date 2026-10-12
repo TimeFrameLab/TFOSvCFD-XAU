@@ -41,11 +41,11 @@ function onOpen() {
     .addItem("อัพเดท Portfolio", "updateBitkubPortfolio")
     .addItem("ทดสอบ PL Monitor (DRY RUN)", "testBitkubPortfolioStopLoss")
     .addSeparator()
-    .addItem("ตั้งค่า Triger 5 นาที", "setBitkubPortfolioTrigger5")
-    .addItem("ตั้งค่า Triger 15 นาที", "setBitkubPortfolioTrigger15")
-    .addItem("ตั้งค่า Triger 30 นาที", "setBitkubPortfolioTrigger30")
-    .addItem("ตั้งค่า Triger 45 นาที", "setBitkubPortfolioTrigger45")
-    .addItem("ตั้งค่า Triger 60 นาที", "setBitkubPortfolioTrigger60")
+    .addItem("ตั้งค่า Triger 5 นาที(1-16 เหรียญ)", "setBitkubPortfolioTrigger5")
+    .addItem("ตั้งค่า Triger 15 นาที(17-51 เหรียญ)", "setBitkubPortfolioTrigger15")
+    .addItem("ตั้งค่า Triger 30 นาที(52-103 เหรียญ)", "setBitkubPortfolioTrigger30")
+    .addItem("ตั้งค่า Triger 45 นาที(104-155 เหรียญ)", "setBitkubPortfolioTrigger45")
+    .addItem("ตั้งค่า Triger 60 นาที(156-207 เหรียญ)", "setBitkubPortfolioTrigger60")
     .addItem("ล้างการตั้งค่า Triger", "clearBitkubPortfolioTriggers")
     .addToUi();
 }
