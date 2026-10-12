@@ -97,7 +97,7 @@ function updateBitkubPortfolio() {
     const properties = PropertiesService.getScriptProperties();
     const credentials = bpGetCredentials(properties);
     const reference = bpLoadReference(properties.getProperty("REF_SHEET_URL"));
-    const wallet = bpApiRequest(credentials, "GET", "/api/v4/wallet/balances?symbol=ALL");
+    const wallet = bpApiRequest(credentials, "GET", "/api/v4/wallet/balances");
     const tickerResponse = bpPublicRequest("/api/v3/market/ticker");
     const symbolsResponse = bpPublicRequest("/api/v3/market/symbols");
     const balances = bpGetArray(wallet, ["data", "result"], "wallet balances");
@@ -253,7 +253,7 @@ function bpRunStopLoss(credentials, coin, stopLoss, pnlRatio, liveEnabled, prope
     const balanceResponse = bpApiRequest(
       credentials,
       "GET",
-      "/api/v4/wallet/balances?symbol=" + encodeURIComponent(coin)
+      "/api/v4/wallet/balances"
     );
     const balanceRows = bpGetArray(balanceResponse, ["data", "result"], "wallet balance " + coin);
     const balance = balanceRows.find((entry) =>
@@ -321,6 +321,7 @@ function bpAverageBuyCost(orders, walletTotal, symbol) {
   const events = [];
   const seenTransactions = new Set();
   let buyCount = 0;
+  let quotePrecisionTolerance = 0;
 
   try {
     orders.forEach((order, index) => {
@@ -343,6 +344,11 @@ function bpAverageBuyCost(orders, walletTotal, symbol) {
         }
         const quantity = Math.floor(((amount - fee + credit) / rate) / unit) * unit;
         if (quantity <= 0) throw new Error("buy quantity is not positive");
+        [order.amount, order.fee, order.credit].forEach((value) => {
+          if (Number(value) !== 0) {
+            quotePrecisionTolerance += bpHalfPrecisionUnit(value) / rate;
+          }
+        });
         events.push({ timestamp: timestamp, index: index, side: side, quantity: quantity, cost: amount });
         buyCount++;
       } else if (side === "sell") {
@@ -379,12 +385,15 @@ function bpAverageBuyCost(orders, walletTotal, symbol) {
   if (held <= 0 || costBasis <= 0) {
     return { average: null, error: "Cost basis N/A (no remaining purchased holdings)" };
   }
-  const tolerance = unit * (buyCount + 1);
-  if (Math.abs(held - walletTotal) > tolerance) {
+  const tolerance = unit * (buyCount + 1) + quotePrecisionTolerance;
+  const difference = Math.abs(held - walletTotal);
+  const floatingPointGuard = Number.EPSILON *
+    Math.max(1, Math.abs(held), Math.abs(walletTotal), tolerance) *
+    (orders.length + 2);
+  if (difference > tolerance + floatingPointGuard) {
     return {
       average: null,
-      error: "Cost basis N/A (wallet/history mismatch: " +
-        Math.abs(held - walletTotal) + ")"
+      error: "Cost basis N/A (wallet/history mismatch: " + difference + ")"
     };
   }
   const average = costBasis / (sellCount ? held : walletTotal);
@@ -501,12 +510,15 @@ function bpApiRequest(credentials, method, pathAndQuery, bodyObject) {
   } catch (error) {
     throw new Error("Bitkub API ตอบ JSON ไม่ถูกต้อง (HTTP " + status + ")");
   }
-  if (status < 200 || status >= 300 || !data || String(data.error) !== "0") {
+  const apiCode = data && typeof data === "object"
+    ? (data.error !== undefined ? data.error : data.code)
+    : undefined;
+  if (status < 200 || status >= 300 || apiCode === undefined || String(apiCode) !== "0") {
     const error = new Error(
       "Bitkub API error (HTTP " + status + ", code " +
-      (data && data.error !== undefined ? data.error : "unavailable") + ")"
+      (apiCode === undefined ? "unavailable" : apiCode) + ")"
     );
-    error.ambiguous = false;
+    error.ambiguous = apiCode === undefined || String(apiCode) === "0";
     throw error;
   }
   return data;
@@ -615,6 +627,19 @@ function bpNumber(value, label) {
     throw new Error("ค่าตัวเลขไม่ถูกต้อง: " + label);
   }
   return number;
+}
+
+function bpHalfPrecisionUnit(value) {
+  const match = String(value).trim().toLowerCase()
+    .match(/^[+-]?\d+(?:\.(\d*))?(?:e([+-]?\d+))?$/);
+  if (!match) throw new Error("รูปแบบทศนิยมจาก Order History ไม่ถูกต้อง");
+  const fractionalDigits = match[1] ? match[1].length : 0;
+  const exponent = Number(match[2] || 0) - fractionalDigits;
+  const halfUnit = 0.5 * Math.pow(10, exponent);
+  if (!Number.isFinite(halfUnit)) {
+    throw new Error("ความละเอียดตัวเลขใน Order History ไม่รองรับ");
+  }
+  return halfUnit;
 }
 
 function bpDisplayValue(value) {

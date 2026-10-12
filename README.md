@@ -271,6 +271,10 @@ Target Price ต้องสอดคล้องกับ `price_scale`/`price_
 
 ตัวอย่างใน `examples/BitkubPortfolio.gs` ตั้ง `BITKUB_ENABLE_LIVE_STOPLOSS` เป็นปิดโดยปริยาย: การตรวจพบ Stop Loss จะแสดง `DRY RUN` และไม่ยกเลิกหรือส่งคำสั่งซื้อขาย. หากจะทดสอบหรือเปิดใช้งานจริง ต้องตรวจโค้ดและ Script Properties ก่อน; ตั้ง `BITKUB_ENABLE_LIVE_STOPLOSS=true` จึงอนุญาตให้ยกเลิกคำสั่งและส่ง Market Sell. ตัวอย่างบันทึกสถานะหลังส่งหรือผลส่งไม่แน่ชัดเพื่อป้องกันคำสั่งซ้ำ; การแก้สถานะดังกล่าวต้องตรวจสอบ Open Orders และ Wallet ด้วยตนเองก่อน.
 
+Wallet ใช้ `GET /api/v4/wallet/balances` ซึ่งตอบ success ด้วย `code: "0"` และรายการยอดใน `data`; ไม่ใช่รูปแบบ V3 `error/result` และไม่รับ `symbol` query parameter. ตัวอย่างรองรับทั้งรหัสตอบกลับ V3 (`error`) และ V4 (`code`).
+
+การคำนวณต้นทุนในตัวอย่าง Apps Script ใช้หลักเดียวกับ `portfolio.sh`: ปัดจำนวนเหรียญ BUY ตาม `base_asset_scale`, ถัวเฉลี่ยต้นทุนตามลำดับเวลา และ reconcile ยอดถือกับ Wallet โดย tolerance รวม dust ของจำนวนเหรียญและครึ่งหน่วยความละเอียดของ `amount`, `fee`, `credit` ในแต่ละ BUY fill (หารด้วย rate). วิธีนี้ลด `wallet/history mismatch` ที่เกิดจากการปัดเศษของ API แต่จะไม่ฝืนจับคู่เมื่อส่วนต่างเกินขอบเขตดังกล่าว. `N/A` พร้อม `wallet/history mismatch` จึงหมายถึงยอดประวัติกับ Wallet ยัง reconcile ไม่ได้; `sell exceeds known holdings` หมายถึงพบ SELL เกิน ledger หลังเริ่ม BUY ในประวัติที่ดึงได้; `No Order History` หรือ API error หมายถึงยังไม่มีข้อมูลพอคำนวณต้นทุน. กรณีเหล่านี้จะไม่คำนวณ `%P/L(Monitor)` และจะไม่เป็นเหตุให้ Stop Loss ส่งคำสั่ง.
+
 **เริ่มต้นใช้ตัวอย่าง:** เปิด Google Sheet ที่จะใช้ → Extensions → Apps Script → วางโค้ดจาก `examples/BitkubPortfolio.gs` → บันทึกและรัน `setupBitkubPortfolioSheet()` → ตั้ง `REF_SHEET_URL`, `BITKUB_API_KEY` และ `BITKUB_API_SECRET` ใน Project Settings → Script Properties → กลับไปโหลดชีตใหม่ แล้วเลือกเมนู `Bitkub Portfolio`. เริ่มจาก `อัพเดท Portfolio` และตรวจผลในโหมด DRY RUN ก่อน; ตั้ง Trigger ได้จากเมนูตามรอบที่ต้องการ. Apps Script ต้องได้รับสิทธิ์เข้าถึงชีตอ้างอิง และสิทธิ์เรียก URL ภายนอก. การเปิด `BITKUB_ENABLE_LIVE_STOPLOSS=true` เป็นการยินยอมให้โค้ดยกเลิกคำสั่งและส่ง Market Sell ด้วย API Key จริง.
 
 ## 📁 โครงสร้างโครงการ
