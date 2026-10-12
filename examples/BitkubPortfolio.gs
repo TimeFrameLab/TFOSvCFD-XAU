@@ -39,6 +39,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("Bitkub Portfolio")
     .addItem("อัพเดท Portfolio", "updateBitkubPortfolio")
+    .addItem("ทดสอบ PL Monitor (DRY RUN)", "testBitkubPortfolioStopLoss")
     .addSeparator()
     .addItem("ตั้งค่า Triger 5 นาที", "setBitkubPortfolioTrigger5")
     .addItem("ตั้งค่า Triger 15 นาที", "setBitkubPortfolioTrigger15")
@@ -209,7 +210,7 @@ function updateBitkubPortfolio() {
     const liveEnabled = properties.getProperty("BITKUB_ENABLE_LIVE_STOPLOSS") === "true";
     rows.forEach((item, index) => {
       if (item.coin === "THB" || item.pnlRatio === null) return;
-      if (item.pnlRatio >= -(item.stopLoss / 100)) return;
+      if (!bpIsStopLossTriggered(item.pnlRatio, item.stopLoss)) return;
       const remark = bpRunStopLoss(
         credentials,
         item.coin,
@@ -231,6 +232,87 @@ function updateBitkubPortfolio() {
   } finally {
     lock.releaseLock();
   }
+}
+
+function testBitkubPortfolioStopLoss() {
+  const ui = SpreadsheetApp.getUi();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BP_SHEET_NAME);
+  if (!sheet) {
+    throw new Error('ไม่พบชีท "' + BP_SHEET_NAME + '"; กรุณารัน setupBitkubPortfolioSheet()');
+  }
+  bpValidateHeaders(sheet);
+
+  const coinPrompt = ui.prompt(
+    "ทดสอบ PL Monitor (DRY RUN)",
+    "ใส่ Currency ที่มีในชีท เช่น HBAR",
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (coinPrompt.getSelectedButton() !== ui.Button.OK) return;
+  const coin = coinPrompt.getResponseText().trim().toUpperCase();
+  if (!/^[A-Z0-9]+$/.test(coin) || coin === "THB") {
+    ui.alert("Currency ไม่ถูกต้อง", "ใส่สัญลักษณ์เหรียญ เช่น HBAR (ไม่รวม THB)", ui.ButtonSet.OK);
+    return;
+  }
+
+  const lastRow = sheet.getLastRow();
+  const matches = lastRow > 1
+    ? sheet.getRange(2, 1, lastRow - 1, BP_HEADERS.length).getValues()
+      .map((row, index) => ({ row: row, rowNumber: index + 2 }))
+      .filter((item) => String(item.row[0] || "").trim().toUpperCase() === coin)
+    : [];
+  if (matches.length !== 1) {
+    ui.alert(
+      "หาเหรียญไม่พบหรือมีรายการซ้ำ",
+      'พบ Currency "' + coin + '" จำนวน ' + matches.length + " แถว; กรุณาตรวจชีทก่อนทดสอบ",
+      ui.ButtonSet.OK
+    );
+    return;
+  }
+
+  const stopLossValue = matches[0].row[9];
+  const stopLoss = Number(stopLossValue);
+  if (stopLossValue === "" || stopLossValue === null ||
+      !Number.isFinite(stopLoss) || stopLoss < 0) {
+    ui.alert(
+      "ค่า Stop Loss ไม่ถูกต้อง",
+      "แถว " + matches[0].rowNumber + " ต้องมี %STOPLOSS(SET) เป็นตัวเลขตั้งแต่ 0 ขึ้นไป",
+      ui.ButtonSet.OK
+    );
+    return;
+  }
+
+  const pnlPrompt = ui.prompt(
+    "จำลอง %P/L(Monitor) — " + coin,
+    "กรอกเปอร์เซ็นต์ เช่น -36 หรือ -36% (กรอก -36 ไม่ใช่ -0.36)",
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (pnlPrompt.getSelectedButton() !== ui.Button.OK) return;
+  const pnlText = pnlPrompt.getResponseText().trim().replace(/%$/, "");
+  const pnlPercent = Number(pnlText);
+  if (!pnlText || !Number.isFinite(pnlPercent)) {
+    ui.alert("ค่า P/L ไม่ถูกต้อง", "กรอกตัวเลขเปอร์เซ็นต์ เช่น -36", ui.ButtonSet.OK);
+    return;
+  }
+
+  const pnlRatio = pnlPercent / 100;
+  const triggered = bpIsStopLossTriggered(pnlRatio, stopLoss);
+  const result = triggered
+    ? "เข้าเงื่อนไข Stop Loss\nจำลอง: ยกเลิก Open Orders ทั้งหมด แล้ว Market Sell ยอด available 100%"
+    : "ยังไม่เข้าเงื่อนไข Stop Loss\nจะไม่ยกเลิกคำสั่งและไม่ส่ง Market Sell";
+  ui.alert(
+    "ผลทดสอบ DRY RUN",
+    coin + " | %P/L(Monitor)=" + pnlPercent + "% | %STOPLOSS(SET)=" + stopLoss +
+      "% (เกณฑ์ -" + stopLoss + "%)\n\n" + result +
+      "\n\nโหมดทดสอบนี้ไม่เรียก Bitkub API ไม่แก้ชีท และไม่ส่งคำสั่งจริง",
+    ui.ButtonSet.OK
+  );
+}
+
+function bpIsStopLossTriggered(pnlRatio, stopLoss) {
+  return Number.isFinite(pnlRatio) &&
+    Number.isFinite(stopLoss) &&
+    stopLoss >= 0 &&
+    pnlRatio < -(stopLoss / 100);
 }
 
 function bpRunStopLoss(credentials, coin, stopLoss, pnlRatio, liveEnabled, properties) {
