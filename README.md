@@ -246,6 +246,33 @@ Target Price ต้องสอดคล้องกับ `price_scale`/`price_
 
 ราคาซื้อเฉลี่ยใน PORTFOLIO คำนวณจาก matched Order History ตามเวลาแบบถัวเฉลี่ยเคลื่อนที่: สำหรับ BUY ใน `my-order-history`, `amount` เป็นยอด THB รวมค่าธรรมเนียม, จำนวนเหรียญสุทธิต่อ fill คือ `(amount - fee + credit) / rate` และต้นทุน THB คือ `amount` (ห้ามบวก fee ซ้ำ); จำนวนที่รับปัดลงตาม `base_asset_scale`. SELL ลดจำนวนและต้นทุนตามค่าเฉลี่ย ณ เวลาขาย. เมื่อไม่มี SELL หลัง BUY ที่บันทึกไว้ ใช้ `wallet total` เป็นจำนวนรับจริงสำหรับหารต้นทุน; เมื่อมี SELL ใช้ค่าเฉลี่ยของ ledger หลัง SELL แล้วปรับต้นทุนคงเหลือด้วย `wallet total`. Reconciliation เผื่อทั้ง dust จาก `base_asset_scale` และความคลาดสูงสุดจาก precision ของ `amount`, `fee`, `credit` ที่ API ส่งต่อ fill; SELL ที่เกิดก่อน BUY แรกในช่วงประวัติถือเป็นการขาย inventory ก่อนช่วงประวัติ และจะยอมรับได้ต่อเมื่อยอดปลายทาง reconcile กับ Wallet. หากประวัติไม่ครบ/ผิดพลาด, ไม่มี BUY คงเหลือ, มี SELL เกิน inventory หลังเริ่มมี BUY หรือยอดต่างเกินขอบเขต precision จะรายงานราคาซื้อเฉลี่ยและ P/L เป็น `N/A` แทนการแสดงต้นทุนที่ไม่น่าเชื่อถือ.
 
+## 📉 ร่างแนวทาง: Bitkub Portfolio Monitor
+
+- ชื่อฟีเจอร์: **Bitkub Portfolio Monitor**
+- ไฟล์ตัวอย่าง: `examples/BitkubPortfolio.gs`
+- ตัวอย่าง: [examples/BitkubPortfolio.gs](./examples/BitkubPortfolio.gs)
+- สถานะ: **มีตัวอย่าง Apps Script สำหรับทดลองและปรับใช้; ต้องตรวจสอบและตั้งค่าก่อนใช้งานจริง**
+
+ตัวอย่าง Google Apps Script นี้อัปเดตข้อมูล Portfolio ลงชีท `BitkubPortfolio` โดยมีคอลัมน์ `%P/L(Monitor)` และ `%STOPLOSS(SET)` เพิ่มจากข้อมูล Portfolio ปกติ:
+
+`Currency | Source | Tier | Total | ราคาซื้อเฉลี่ย (รวมค่าธรรมเนียม) | ราคาล่าสุด | มูลค่า (THB) | กำไร/ขาดทุน (หักค่าธรรมเนียม) | %P/L(Monitor) | %STOPLOSS(SET) | ราคา Limit (THB) | ปริมาณในคำสั่ง | Remark`
+
+- ค่าเริ่มต้นของ `%STOPLOSS(SET)` คือเลข `35` ในทุกแถว หมายถึงยอมขาดทุนได้ถึง `-35%`; แสดงเป็นเปอร์เซ็นต์ในชีทได้ และผู้ใช้ปรับแยกเป็นรายเหรียญได้
+- เมื่ออัปเดต ให้รักษาค่า Stop Loss ที่ผู้ใช้ตั้งไว้โดยจับคู่ตาม `Currency`; กำหนด `35` ให้แถวใหม่หรือแถวที่ยังไม่มีค่าตั้งไว้
+- คำนวณ `%P/L(Monitor)` ตามต้นทุนและ P/L ที่เชื่อถือได้เท่านั้น หากข้อมูลราคา, ต้นทุน หรือ P/L ขาดหาย/ผิดพลาด ให้บันทึกสถานะใน `Remark` และห้ามใช้แถวนั้นเป็นเหตุส่งคำสั่ง
+- ทุกครั้งที่อัปเดต ให้ตรวจแต่ละแถวที่มีข้อมูลครบ: เมื่อ `%P/L(Monitor) < -%STOPLOSS(SET)` ให้เริ่มกระบวนการ Stop Loss เช่น ค่า Stop Loss `35` จะเริ่มเมื่อ P/L ต่ำกว่า `-35%` (`-36%` เข้าเงื่อนไข แต่ `-35%` พอดียังไม่เข้า)
+- สำหรับเหรียญที่เข้าเงื่อนไข ให้ดึง Open Orders ของคู่ `<COIN>_THB` และยกเลิกคำสั่ง BUY/SELL ที่ยังเปิดอยู่ทั้งหมด โดยใช้รูปแบบ Bitkub API และการตรวจสอบจาก `cancel.sh`; ต้องตรวจผลและอ่าน Open Orders ซ้ำเพื่อยืนยันว่าไม่มีคำสั่งค้าง
+- เมื่อยืนยันการยกเลิกครบแล้ว ให้อ่านยอด Wallet ที่พร้อมขาย (`available`) ใหม่ และส่ง **Market Sell 100% ของจำนวนที่ขายได้** โดยใช้แนวทางส่งคำสั่งจาก `trade.sh` หากมีข้อผิดพลาดหรือยังยืนยันการยกเลิกไม่ได้ ให้หยุดโดยไม่ส่งคำสั่งขาย และบันทึกรายละเอียดใน `Remark`
+- ป้องกัน Trigger ทำงานซ้อนและป้องกันส่ง Stop Loss ซ้ำสำหรับเหรียญเดียวกัน; บันทึกผลการยกเลิก/ขาย เวลา และ Order ID หรือรายละเอียดข้อผิดพลาด เพื่อให้ตรวจสอบย้อนหลังได้
+
+เมนูในชีทที่วางแผนไว้: `อัพเดท Portfolio`, `ตั้งค่า Triger 5 นาที`, `ตั้งค่า Triger 15 นาที`, `ตั้งค่า Triger 30 นาที`, `ตั้งค่า Triger 45 นาที`, `ตั้งค่า Triger 60 นาที` และ `ล้างการตั้งค่า Triger`. Apps Script ไม่มี Trigger 45 นาทีโดยตรง จึงต้องใช้ Trigger ทุก 15 นาทีร่วมกับการตรวจเวลารอบล่าสุดเพื่อจำลองช่วง 45 นาที; Trigger อาจทำงานคลาดจากเวลาที่กำหนดได้.
+
+เก็บ `REF_SHEET_URL`, `BITKUB_API_KEY` และ `BITKUB_API_SECRET` ใน Apps Script Properties ไม่ฝังค่า Secret ในซอร์สโค้ด. เนื่องจากฟีเจอร์นี้ส่งคำสั่งขายอัตโนมัติ API Key ต้องมีสิทธิ์เทรดตามที่ Bitkub กำหนดและผู้ใช้ต้องยอมรับความเสี่ยงจากการส่งคำสั่งจริง; ไม่ควรเปิดสิทธิ์ถอนเงิน. `examples/BitkubPortfolio.gs` เรียก Bitkub API โดยตรง ไม่สามารถเรียกไฟล์ `.sh` บนเครื่องจาก Apps Script ได้.
+
+ตัวอย่างใน `examples/BitkubPortfolio.gs` ตั้ง `BITKUB_ENABLE_LIVE_STOPLOSS` เป็นปิดโดยปริยาย: การตรวจพบ Stop Loss จะแสดง `DRY RUN` และไม่ยกเลิกหรือส่งคำสั่งซื้อขาย. หากจะทดสอบหรือเปิดใช้งานจริง ต้องตรวจโค้ดและ Script Properties ก่อน; ตั้ง `BITKUB_ENABLE_LIVE_STOPLOSS=true` จึงอนุญาตให้ยกเลิกคำสั่งและส่ง Market Sell. ตัวอย่างบันทึกสถานะหลังส่งหรือผลส่งไม่แน่ชัดเพื่อป้องกันคำสั่งซ้ำ; การแก้สถานะดังกล่าวต้องตรวจสอบ Open Orders และ Wallet ด้วยตนเองก่อน.
+
+**เริ่มต้นใช้ตัวอย่าง:** เปิด Google Sheet ที่จะใช้ → Extensions → Apps Script → วางโค้ดจาก `examples/BitkubPortfolio.gs` → บันทึกและรัน `setupBitkubPortfolioSheet()` → ตั้ง `REF_SHEET_URL`, `BITKUB_API_KEY` และ `BITKUB_API_SECRET` ใน Project Settings → Script Properties → กลับไปโหลดชีตใหม่ แล้วเลือกเมนู `Bitkub Portfolio`. เริ่มจาก `อัพเดท Portfolio` และตรวจผลในโหมด DRY RUN ก่อน; ตั้ง Trigger ได้จากเมนูตามรอบที่ต้องการ. Apps Script ต้องได้รับสิทธิ์เข้าถึงชีตอ้างอิง และสิทธิ์เรียก URL ภายนอก. การเปิด `BITKUB_ENABLE_LIVE_STOPLOSS=true` เป็นการยินยอมให้โค้ดยกเลิกคำสั่งและส่ง Market Sell ด้วย API Key จริง.
+
 ## 📁 โครงสร้างโครงการ
 
 ```
@@ -264,7 +291,8 @@ TFOSvX/
 ├── LICENSE                                   ← สัญญาอนุญาต
 ├── examples/
 │   ├── All-Bitkub-BATCH-starter.gs           ← ตัวช่วยสร้างหัวตารางและเขียนข้อมูล
-│   └── All-Bitkub-MTFS.gs                    ← สคริปต์ MTFS เต็ม: ดึงข้อมูลและอัปเดตทุก 1 ชั่วโมง
+│   ├── All-Bitkub-MTFS.gs                    ← สคริปต์ MTFS เต็ม: ดึงข้อมูลและอัปเดตทุก 1 ชั่วโมง
+│   └── BitkubPortfolio.gs                    ← ตัวอย่าง Portfolio Monitor และ Stop Loss (DRY RUN เริ่มต้น)
 └── downloads/                                ← โฟลเดอร์ผลลัพธ์ (Git เก็บเฉพาะ .gitkeep เพื่อคงโฟลเดอร์ว่างหลัง clone)
     └── .gitkeep                              ← placeholder เปล่า; ไฟล์ข้อมูลที่สร้างระหว่างใช้งานไม่ติดตามโดย Git
 ```
