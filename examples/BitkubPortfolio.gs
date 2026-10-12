@@ -344,15 +344,31 @@ function bpAverageBuyCost(orders, walletTotal, symbol) {
         }
         const quantity = Math.floor(((amount - fee + credit) / rate) / unit) * unit;
         if (quantity <= 0) throw new Error("buy quantity is not positive");
+        let fillPrecisionTolerance = 0;
         [order.amount, order.fee, order.credit].forEach((value) => {
           if (Number(value) !== 0) {
-            quotePrecisionTolerance += bpHalfPrecisionUnit(value) / rate;
+            fillPrecisionTolerance += bpHalfPrecisionUnit(value) / rate;
           }
         });
-        events.push({ timestamp: timestamp, index: index, side: side, quantity: quantity, cost: amount });
+        quotePrecisionTolerance += fillPrecisionTolerance;
+        events.push({
+          timestamp: timestamp,
+          index: index,
+          side: side,
+          quantity: quantity,
+          cost: amount,
+          precisionTolerance: fillPrecisionTolerance
+        });
         buyCount++;
       } else if (side === "sell") {
-        events.push({ timestamp: timestamp, index: index, side: side, quantity: amount, cost: 0 });
+        events.push({
+          timestamp: timestamp,
+          index: index,
+          side: side,
+          quantity: amount,
+          cost: 0,
+          precisionTolerance: 0
+        });
       } else {
         throw new Error("unknown order side");
       }
@@ -365,19 +381,37 @@ function bpAverageBuyCost(orders, walletTotal, symbol) {
   let held = 0;
   let costBasis = 0;
   let buySeen = false;
+  let knownBuyCount = 0;
+  let knownBuyPrecisionTolerance = 0;
+  let sellRoundingOverage = 0;
   let sellCount = 0;
   for (const event of events) {
     if (event.side === "buy") {
       buySeen = true;
+      knownBuyCount++;
+      knownBuyPrecisionTolerance += event.precisionTolerance;
       held += event.quantity;
       costBasis += event.cost;
     } else {
       if (event.quantity > held) {
-        if (buySeen) return { average: null, error: "Cost basis N/A (sell exceeds known holdings)" };
-        continue;
+        if (!buySeen) continue;
+        sellRoundingOverage += event.quantity - held;
+        const sellTolerance = unit * (knownBuyCount + 1) + knownBuyPrecisionTolerance;
+        const floatingPointGuard = Number.EPSILON *
+          Math.max(1, Math.abs(event.quantity), Math.abs(held), sellTolerance) *
+          (events.length + 2);
+        if (sellRoundingOverage > sellTolerance + floatingPointGuard) {
+          return { average: null, error: "Cost basis N/A (sell exceeds known holdings)" };
+        }
+        event.quantity = held;
       }
-      costBasis -= costBasis / held * event.quantity;
-      held -= event.quantity;
+      if (event.quantity === held) {
+        held = 0;
+        costBasis = 0;
+      } else {
+        costBasis -= costBasis / held * event.quantity;
+        held -= event.quantity;
+      }
       sellCount++;
     }
   }

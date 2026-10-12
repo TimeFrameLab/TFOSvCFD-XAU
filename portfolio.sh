@@ -320,31 +320,52 @@ def avg_buy_price(orders, total_held, base_asset_scale):
                     for value in (amount, fee, credit)
                     if value != 0
                 )
-                precision_tolerance += quote_precision / rate
+                fill_precision_tolerance = quote_precision / rate
+                precision_tolerance += fill_precision_tolerance
                 cost = amount
             elif side == 'sell':
                 quantity = amount
                 cost = Decimal(0)
+                fill_precision_tolerance = Decimal(0)
             else:
                 raise ValueError('unknown order side')
-            events.append((timestamp, index, side, quantity, cost))
+            events.append((timestamp, index, side, quantity, cost, fill_precision_tolerance))
 
         quantity_held = Decimal(0)
         cost_basis = Decimal(0)
         known_buy_seen = False
+        known_buy_fill_count = 0
+        known_buy_precision_tolerance = Decimal(0)
+        sell_rounding_overage = Decimal(0)
         matched_sell_count = 0
-        for _, _, side, quantity, cost in sorted(events, key=lambda event: (event[0], event[1])):
+        for _, _, side, quantity, cost, fill_precision_tolerance in sorted(
+            events, key=lambda event: (event[0], event[1])
+        ):
             if side == 'buy':
                 known_buy_seen = True
+                known_buy_fill_count += 1
+                known_buy_precision_tolerance += fill_precision_tolerance
                 quantity_held += quantity
                 cost_basis += cost
             else:
                 if quantity > quantity_held:
                     if known_buy_seen:
-                        raise ValueError('sell exceeds known holdings')
-                    continue
-                cost_basis -= (cost_basis / quantity_held) * quantity
-                quantity_held -= quantity
+                        sell_rounding_overage += quantity - quantity_held
+                        sell_tolerance = (
+                            quantity_unit * (known_buy_fill_count + 1)
+                            + known_buy_precision_tolerance
+                        )
+                        if sell_rounding_overage > sell_tolerance:
+                            raise ValueError('sell exceeds known holdings')
+                        quantity = quantity_held
+                    else:
+                        continue
+                if quantity == quantity_held:
+                    quantity_held = Decimal(0)
+                    cost_basis = Decimal(0)
+                else:
+                    cost_basis -= (cost_basis / quantity_held) * quantity
+                    quantity_held -= quantity
                 matched_sell_count += 1
 
         wallet_quantity = Decimal(str(total_held))
