@@ -76,6 +76,8 @@ GROUP       : <GROUP>
 
 `UPDATE/<AKA>-<AKA>-...` แสดงบล็อก `AKA`, `LAST_CANDLE`, `UPDATED`, `GROUP` สำหรับแต่ละหุ้นตามลำดับที่ขอ แล้วแสดง `🔵 SPECIFIED SET — n รายการ` พร้อมตาราง `AKA | GROUP | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity`; แถวเรียงตามคะแนน CMB มากไปน้อย ส่วน AKA ที่ไม่พบหรือ timestamp ว่างจะแจ้งตามจริงและทำให้คำสั่งจบด้วย error status. ค่า Liquidity ยังคงเป็นตัวเลขดิบที่ได้รับจาก Settrade หรือ `⚫ N/A`; ไม่มีการแสดง HIGH/MEDIUM/LOW โดยไม่มีเกณฑ์ที่ยืนยันแล้ว ระบบไม่บันทึก Workbook ที่ดาวน์โหลดกลับไปยัง Google Sheets
 
+สำหรับ `UPDATE` ปกติ ตาราง signals จะแสดงก่อน จากนั้นจึงดึง Liquidity ซ้ำเป็นรอบแยกตามหมวด เฉพาะหุ้นที่ปรากฏในตารางของหมวดนั้น (`BUY CONFIRMED`, `EARLY/WATCH` TOP 10, `PULLBACK ZONE` TOP 10 และ `OVEREXTENDED`); `WAIT/RETEST` แสดงเพียงจำนวนจึงไม่ถูกดึง Liquidity ในรอบนี้ การดึงจะเปิด feed ทีละหุ้น (ไม่เกิน 2 subscriptions พร้อมกัน), ปิด feed ก่อนหุ้นถัดไป และจำกัดเวลารวมของคำขอ Liquidity แต่ละครั้งไว้ 120 วินาที พร้อมแสดงจำนวนข้อมูลครบและเหตุขัดข้องต่อหมวด
+
 `CANDIDATE` ผ่านเมื่อครบทุกเงื่อนไข:
 
 1. `TREND(W) = UP`

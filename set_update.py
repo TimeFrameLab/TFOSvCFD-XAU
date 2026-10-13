@@ -9,6 +9,7 @@ import re
 import sys
 import tempfile
 import threading
+import time
 from typing import Any, Callable, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
@@ -24,6 +25,7 @@ DOWNLOAD_DIR = os.path.join(SCRIPT_DIR, "downloads")
 WORKBOOK_PATH = os.path.join(DOWNLOAD_DIR, "All-SET-MTFS.xlsx")
 MAX_WORKBOOK_BYTES = 25 * 1024 * 1024
 SETTRADE_REALTIME_TIMEOUT_SECONDS = 20
+SETTRADE_LIQUIDITY_MAX_DURATION_SECONDS = 120
 
 REQUIRED_COLUMNS = (
     "AKA",
@@ -369,6 +371,7 @@ def _collect_settrade_liquidity(
     config: dict[str, str],
     *,
     investor_factory: Optional[Callable[..., Any]] = None,
+    max_duration_seconds: Optional[float] = None,
 ) -> tuple[dict[str, dict[str, Optional[float]]], list[str]]:
     if not symbols:
         return {}, []
@@ -382,6 +385,8 @@ def _collect_settrade_liquidity(
             ) if not value
         ]
         return {}, ["ไม่ได้กำหนด " + ", ".join(missing) + " ใน .env"]
+    if max_duration_seconds is not None and max_duration_seconds <= 0:
+        return {}, ["หมดเวลาประมวลผล Liquidity; ไม่ได้เริ่มการเชื่อมต่อ"]
 
     expected_errors = (OSError, RuntimeError, TimeoutError, ValueError)
     try:
@@ -400,31 +405,7 @@ def _collect_settrade_liquidity(
     app_code = config.get("SETTRADE_APP_CODE", "SANDBOX").strip() or "SANDBOX"
     results: dict[str, dict[str, Optional[float]]] = {}
     issues: list[str] = []
-    states = {
-        symbol: {"info": None, "book": None, "received": set()}
-        for symbol in symbols
-    }
-    lock = threading.Lock()
-    received_data = threading.Event()
-    subscribers = []
-
-    def callback(symbol: str, kind: str, message: dict[str, Any]) -> None:
-        try:
-            parsed = _parse_market_message(message, kind)
-        except (TypeError, ValueError) as exc:
-            parsed = {}
-            safe_message = str(exc).replace(app_id, "[REDACTED]").replace(app_secret, "[REDACTED]")
-            issue = f"{symbol}: {kind} — {safe_message}"
-        else:
-            issue = ""
-        with lock:
-            states[symbol][kind] = parsed or None
-            states[symbol]["received"].add(kind)
-            if issue:
-                issues.append(issue)
-            if all(len(state["received"]) == 2 for state in states.values()):
-                received_data.set()
-
+    started_at = time.monotonic()
     try:
         investor = investor_factory(
             app_id=app_id,
@@ -433,48 +414,170 @@ def _collect_settrade_liquidity(
             broker_id=broker_id,
             is_auto_queue=False,
         )
-        realtime = investor.RealtimeDataConnection()
-        for symbol in symbols:
-            info_subscriber = realtime.subscribe_price_info(
-                symbol,
-                lambda message, symbol=symbol: callback(symbol, "info", message),
-            )
-            info_subscriber.start()
-            subscribers.append(info_subscriber)
-            book_subscriber = realtime.subscribe_bid_offer(
-                symbol,
-                lambda message, symbol=symbol: callback(symbol, "book", message),
-            )
-            book_subscriber.start()
-            subscribers.append(book_subscriber)
-        received_data.wait(SETTRADE_REALTIME_TIMEOUT_SECONDS)
     except expected_errors as exc:
         safe_message = str(exc).replace(app_id, "[REDACTED]").replace(app_secret, "[REDACTED]")
-        issues.append(f"เชื่อมต่อ Settrade ไม่สำเร็จ ({type(exc).__name__}: {safe_message})")
-    finally:
-        for subscriber in subscribers:
-            try:
-                subscriber.stop()
-            except (OSError, RuntimeError) as exc:
-                issues.append(f"ปิด Settrade feed ไม่สำเร็จ ({type(exc).__name__})")
+        return {}, [
+            f"เชื่อมต่อ Settrade ไม่สำเร็จ ({type(exc).__name__}: {safe_message})"
+        ]
 
-    timed_out_symbols = []
-    with lock:
-        for symbol, state in states.items():
+    for symbol_index, symbol in enumerate(symbols):
+        if max_duration_seconds is not None:
+            remaining_duration = max_duration_seconds - (time.monotonic() - started_at)
+            if remaining_duration <= 0:
+                skipped = len(symbols) - symbol_index
+                issues.append(
+                    f"หมดเวลาประมวลผล Liquidity; ข้าม {skipped} หุ้นที่เหลือ"
+                )
+                break
+        else:
+            remaining_duration = SETTRADE_REALTIME_TIMEOUT_SECONDS
+
+        state: dict[str, Any] = {"info": None, "book": None, "received": set()}
+        state_lock = threading.Lock()
+        received_data = threading.Event()
+        callback_issues: list[str] = []
+        subscribers = []
+
+        def callback(kind: str, message: dict[str, Any]) -> None:
+            try:
+                parsed = _parse_market_message(message, kind)
+            except (TypeError, ValueError) as exc:
+                parsed = {}
+                safe_message = str(exc).replace(app_id, "[REDACTED]").replace(app_secret, "[REDACTED]")
+                callback_issues.append(f"{kind}: {safe_message}")
+            with state_lock:
+                state[kind] = parsed or None
+                state["received"].add(kind)
+                if len(state["received"]) == 2:
+                    received_data.set()
+
+        try:
+            realtime = investor.RealtimeDataConnection()
+            info_subscriber = realtime.subscribe_price_info(
+                symbol, lambda message: callback("info", message)
+            )
+            subscribers.append(info_subscriber)
+            info_subscriber.start()
+            book_subscriber = realtime.subscribe_bid_offer(
+                symbol, lambda message: callback("book", message)
+            )
+            subscribers.append(book_subscriber)
+            book_subscriber.start()
+            wait_seconds = SETTRADE_REALTIME_TIMEOUT_SECONDS
+            if max_duration_seconds is not None:
+                remaining_duration = max_duration_seconds - (
+                    time.monotonic() - started_at
+                )
+                wait_seconds = min(wait_seconds, max(remaining_duration, 0))
+            received_data.wait(wait_seconds)
+        except expected_errors as exc:
+            safe_message = str(exc).replace(app_id, "[REDACTED]").replace(app_secret, "[REDACTED]")
+            issues.append(
+                f"{symbol}: เชื่อมต่อ feed ไม่สำเร็จ ({type(exc).__name__}: {safe_message})"
+            )
+        finally:
+            for subscriber in subscribers:
+                try:
+                    subscriber.stop()
+                except (OSError, RuntimeError) as exc:
+                    issues.append(
+                        f"{symbol}: ปิด feed ไม่สำเร็จ ({type(exc).__name__})"
+                    )
+
+        with state_lock:
             info = state["info"]
             book = state["book"]
             if info or book:
                 results[symbol] = {**(info or {}), **(book or {})}
-            if len(state["received"]) < 2:
-                timed_out_symbols.append(symbol)
-    if timed_out_symbols:
-        shown_symbols = ", ".join(timed_out_symbols[:10])
-        if len(timed_out_symbols) > 10:
-            shown_symbols += f", และอีก {len(timed_out_symbols) - 10} หุ้น"
-        issues.append(
-            f"หมดเวลารอ Liquidity feed: {len(timed_out_symbols)} หุ้น ({shown_symbols})"
-        )
+            missing_feeds = [
+                feed for feed in ("info", "book")
+                if feed not in state["received"]
+            ]
+        issues.extend(f"{symbol}: {issue}" for issue in callback_issues)
+        if missing_feeds:
+            issues.append(
+                f"{symbol}: ไม่ได้รับ feed " + ", ".join(missing_feeds)
+            )
     return results, issues
+
+
+def _classify_update_rows(rows: list, indexes: dict[str, int]) -> dict[str, list]:
+    categories: dict[str, list] = {
+        "BUY_CONFIRMED": [],
+        "EARLY_WATCH": [],
+        "PULLBACK_ZONE": [],
+        "OVEREXTENDED": [],
+        "WAIT_RETEST": [],
+    }
+    for row in rows:
+        categories[_candidate_report_state(row, indexes)].append(row)
+
+    macd_order = lambda row: -(_finite_number(_cell(row, indexes, "MACD_HIST_DELTA(W)")) or 0)
+    pullback_order = lambda row: -_candidate_metrics(row, indexes)[3]
+    for key in ("BUY_CONFIRMED", "EARLY_WATCH"):
+        categories[key].sort(key=macd_order)
+    categories["PULLBACK_ZONE"].sort(key=pullback_order)
+    return categories
+
+
+def _print_update_liquidity_rounds(
+    rows: list,
+    indexes: dict[str, int],
+    config: dict[str, str],
+) -> None:
+    categories = _classify_update_rows(rows, indexes)
+    displayed_categories = (
+        ("BUY CONFIRMED", "BUY_CONFIRMED", None),
+        ("EARLY/WATCH", "EARLY_WATCH", 10),
+        ("PULLBACK ZONE", "PULLBACK_ZONE", 10),
+        ("OVEREXTENDED", "OVEREXTENDED", None),
+    )
+    started_at = time.monotonic()
+    missing_credentials = [
+        key for key in ("SETTRADE_APP_ID", "SETTRADE_APP_SECRET")
+        if not config.get(key, "").strip()
+    ]
+    for title, key, limit in displayed_categories:
+        category_rows = categories[key]
+        visible_rows = category_rows[:limit] if limit is not None else category_rows
+        if not visible_rows:
+            continue
+
+        symbols = [
+            _display(_cell(row, indexes, "AKA")).upper()
+            for row in visible_rows
+        ]
+        remaining = max(
+            SETTRADE_LIQUIDITY_MAX_DURATION_SECONDS - (time.monotonic() - started_at),
+            0,
+        )
+        print(f"\n🔄 Liquidity refresh — {title} ({len(symbols)} หุ้น)")
+        if missing_credentials:
+            liquidity = {}
+            issues = [
+                "ไม่ได้กำหนด " + ", ".join(missing_credentials) + " ใน .env"
+            ]
+        else:
+            liquidity, issues = _collect_settrade_liquidity(
+                symbols, config, max_duration_seconds=remaining
+            )
+        required_metric_keys = {
+            "turnover", "bid_price", "ask_price", "spread", "bid_depth", "ask_depth",
+        }
+        complete_count = sum(
+            required_metric_keys.issubset(metrics)
+            for metrics in liquidity.values()
+        )
+        print(f"ข้อมูล feed ครบ {complete_count}/{len(symbols)} หุ้น")
+        print("| AKA | Liquidity |")
+        print("|---|---|")
+        for symbol in symbols:
+            print(f"| {symbol} | {_markdown_cell(_format_liquidity(liquidity.get(symbol)))} |")
+        if issues:
+            for issue in issues[:10]:
+                print(f"⚠️ Liquidity unavailable: {issue}")
+            if len(issues) > 10:
+                print(f"⚠️ Liquidity unavailable: และอีก {len(issues) - 10} ข้อผิดพลาด")
 
 
 def _format_liquidity(metrics: Optional[dict[str, Optional[float]]]) -> str:
@@ -702,21 +805,7 @@ def _print_update_status_report(
     if missing:
         raise ValueError("ขาดคอลัมน์สำหรับรายงาน UPDATE: " + ", ".join(missing))
 
-    categories: dict[str, list] = {
-        "BUY_CONFIRMED": [],
-        "EARLY_WATCH": [],
-        "PULLBACK_ZONE": [],
-        "OVEREXTENDED": [],
-        "WAIT_RETEST": [],
-    }
-    for row in rows:
-        categories[_candidate_report_state(row, indexes)].append(row)
-
-    macd_order = lambda row: -(_finite_number(_cell(row, indexes, "MACD_HIST_DELTA(W)")) or 0)
-    pullback_order = lambda row: -_candidate_metrics(row, indexes)[3]
-    for key in ("BUY_CONFIRMED", "EARLY_WATCH"):
-        categories[key].sort(key=macd_order)
-    categories["PULLBACK_ZONE"].sort(key=pullback_order)
+    categories = _classify_update_rows(rows, indexes)
 
     tabular_columns = ("หุ้น", "GROUP", "RSI(W)", "RSI(D)", "MACD_D", "ราคา", "Liquidity")
     _print_status_table(
@@ -922,15 +1011,42 @@ def main(argv: Optional[list[str]] = None) -> int:
             except ValueError as exc:
                 print(f"❌ {exc}", file=sys.stderr)
                 return 1
-        symbols = list(dict.fromkeys(
-            _display(_cell(row, indexes, "AKA")).upper()
-            for row in worksheet.iter_rows(min_row=2, values_only=True)
+        rows = [
+            row for row in worksheet.iter_rows(min_row=2, values_only=True)
             if row and any(value is not None and str(value).strip() for value in row)
-        ))
+        ]
         if command == "UPDATE" and selected_symbols:
             selected_set = set(selected_symbols)
-            symbols = [symbol for symbol in symbols if symbol in selected_set]
-        liquidity, liquidity_issues = _collect_settrade_liquidity(symbols, config)
+            symbols = [
+                _display(_cell(row, indexes, "AKA")).upper()
+                for row in rows
+                if _display(_cell(row, indexes, "AKA")).upper() in selected_set
+            ]
+            liquidity, liquidity_issues = _collect_settrade_liquidity(
+                list(dict.fromkeys(symbols)),
+                config,
+                max_duration_seconds=SETTRADE_LIQUIDITY_MAX_DURATION_SECONDS,
+            )
+        elif command == "CANDIDATE":
+            candidate_rows = [
+                row for row in rows if _candidate_state(row, indexes)
+            ]
+            candidate_rows.sort(
+                key=lambda row: -(
+                    _finite_number(_cell(row, indexes, "MACD_HIST_DELTA(W)")) or 0
+                )
+            )
+            candidate_symbols = [
+                _display(_cell(row, indexes, "AKA")).upper()
+                for row in candidate_rows[:20]
+            ]
+            liquidity, liquidity_issues = _collect_settrade_liquidity(
+                candidate_symbols,
+                config,
+                max_duration_seconds=SETTRADE_LIQUIDITY_MAX_DURATION_SECONDS,
+            )
+        else:
+            liquidity, liquidity_issues = {}, []
         try:
             if command == "UPDATE":
                 missing_symbols = _print_update_report(
@@ -941,6 +1057,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         except ValueError as exc:
             print(f"❌ {exc}", file=sys.stderr)
             return 1
+        if command == "UPDATE" and not selected_symbols:
+            _print_update_liquidity_rounds(rows, indexes, config)
         if not timestamp_available:
             print("⚠️ ไม่พบคอลัมน์เวลาอ้างอิง จึงตรวจความสดของข้อมูลไม่ได้")
         else:
