@@ -66,13 +66,14 @@ SET_DATA_SHEET=All-SET-MTFS
   GROUP       : <GROUP>
   ```
 
-  ต้องมีคอลัมน์ `LAST_CANDLE`, `UPDATED` และค่าทั้งสองในแถว `ADVANC`; หากไม่พบข้อมูลให้รายงานข้อผิดพลาด ไม่คาดเดาหรือแสดงผลสำเร็จแทน `UPDATE/<AKA>-...` เป็นคำสั่งกรองและไม่แสดงสรุป ADVANC
+  ต้องมีคอลัมน์ `LAST_CANDLE`, `UPDATED` และค่าทั้งสองในแถว `ADVANC`; หากไม่พบข้อมูลให้รายงานข้อผิดพลาด ไม่คาดเดาหรือแสดงผลสำเร็จแทน
 - หลังสรุป `UPDATE` แสดงกลุ่ม `🟢 BUY CONFIRMED`, `🟡 EARLY/WATCH`, `🟠 PULLBACK ZONE`, `🔴 OVEREXTENDED` และ `⚪ WAIT/RETEST` ตาม signals ใน snapshot; `EARLY/WATCH` เรียงตาม `MACD_HIST_DELTA(W)` มากไปน้อย และ `PULLBACK ZONE` เรียงตาม Combined Score มากไปน้อย
 - ตารางใช้ `GROUP` แทน `TIER`; หุ้นทุกแถวและรายชื่อ OVEREXTENDED เป็น Markdown link ไปยัง Finnomena ตามรูปแบบ `https://www.finnomena.com/stock/<AKA>/advance`
 - `CANDIDATE` แสดงหัวข้อ `ผลการค้นหา CANDIDATE (PRE-ENTRY-Like Pattern) — n หุ้น` ตารางแสดงไม่เกิน 20 รายการ เรียง `MACD_HIST_DELTA(W)` มากไปน้อย และคงลำดับคอลัมน์ `# | หุ้น | GROUP | ราคา (THB) | MACD Δ(W) | Entry Zone (4H) | 1H Trigger | Liquidity`
 - เมื่อมี Settrade credentials ระบบสมัคร feed read-only สำหรับมูลค่าซื้อขายสะสมวันนี้ (`InfoV3.total_value`) และ bid/ask 10 ระดับ (`BidOfferV3`); แสดง turnover, ราคา bid/ask ระดับแรก, spread และผลรวมปริมาณ bid/ask 10 ระดับเป็นตัวเลขดิบเท่านั้น ไม่จัดระดับ HIGH/MEDIUM/LOW
 - หากไม่มี credentials, feed ไม่ตอบกลับ หรือข้อมูลบางส่วนไม่ครบ ระบบแสดง `⚫ N/A` เฉพาะค่าที่ไม่มีและเตือนสาเหตุ; ไม่ใช้ snapshot หรือ cache เก่ามาแทน
-- `UPDATE/<AKA>-<AKA>-...` แสดงเฉพาะหุ้นที่ระบุในรายงานแบบจัดกลุ่มเดียวกัน; AKA ที่ไม่พบต้องแจ้งแยกและไม่แทนด้วยข้อมูลเก่า
+- `UPDATE/<AKA>-<AKA>-...` แสดงข้อมูล `AKA`, `LAST_CANDLE`, `UPDATED`, `GROUP` แยกทีละหุ้นตามลำดับที่ขอ แล้วตามด้วย `🔵 SPECIFIED SET — n รายการ` และตารางคอลัมน์ `AKA | GROUP | RSI(W) | RSI(1H) | ราคา | VOL (x/4) | TREND (x/4) | CMB (x/4) | Liquidity`; เรียงตารางตาม CMB score มากไปน้อย
+- AKA ที่ไม่พบหรือ timestamp ว่างต้องแจ้งตามจริงและคืน error status; คำสั่งแสดงผลจาก snapshot และไม่แก้หรือบันทึก Workbook ต้นทาง
 
 ### แหล่งข้อมูล Liquidity
 

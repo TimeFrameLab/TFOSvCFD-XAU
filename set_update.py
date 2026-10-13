@@ -301,6 +301,11 @@ def _format_price(value) -> str:
     return _display(value)
 
 
+def _format_price_fixed(value) -> str:
+    number = _finite_number(value)
+    return f"{number:,.4f}" if number is not None else _display(value)
+
+
 def _finite_number(value) -> Optional[float]:
     if isinstance(value, bool):
         return None
@@ -502,24 +507,80 @@ def _print_update_report(
     selected_symbols: list[str],
     liquidity: Optional[dict[str, dict[str, Optional[float]]]] = None,
 ) -> bool:
-    if selected_symbols:
-        selected_set = set(selected_symbols)
-        rows = [
-            row for row in worksheet.iter_rows(min_row=2, values_only=True)
-            if _display(_cell(row, indexes, "AKA")).upper() in selected_set
-        ]
-        found = {_display(_cell(row, indexes, "AKA")).upper() for row in rows}
-        missing = [symbol for symbol in selected_symbols if symbol not in found]
-        if missing:
-            print("ไม่พบ AKA ใน snapshot: " + ", ".join(missing))
-    else:
+    if not selected_symbols:
         rows = [
             row for row in worksheet.iter_rows(min_row=2, values_only=True)
             if row and any(value is not None and str(value).strip() for value in row)
         ]
+        _print_update_status_report(rows, indexes, liquidity or {})
+        return False
 
-    _print_update_status_report(rows, indexes, liquidity or {})
-    return bool(selected_symbols and missing)
+    rows_by_symbol = {
+        _display(_cell(row, indexes, "AKA")).upper(): row
+        for row in worksheet.iter_rows(min_row=2, values_only=True)
+        if row and any(value is not None and str(value).strip() for value in row)
+    }
+    specified_rows = [
+        (symbol, rows_by_symbol[symbol])
+        for symbol in selected_symbols
+        if symbol in rows_by_symbol
+    ]
+    missing_symbols = [symbol for symbol in selected_symbols if symbol not in rows_by_symbol]
+    incomplete_symbols = []
+
+    for symbol, row in specified_rows:
+        missing_values = [
+            column for column in ("LAST_CANDLE", "UPDATED")
+            if not _display(_cell(row, indexes, column))
+        ]
+        if missing_values:
+            incomplete_symbols.append(symbol)
+        print(f"AKA         : {symbol}")
+        print(f"LAST_CANDLE : {_display(_cell(row, indexes, 'LAST_CANDLE'))}")
+        print(f"UPDATED     : {_display(_cell(row, indexes, 'UPDATED'))}")
+        print(f"GROUP       : {_display(_cell(row, indexes, 'GROUP'))}")
+        print("")
+
+    print(f"🔵 SPECIFIED SET — {len(specified_rows)} รายการ")
+    columns = (
+        "AKA", "GROUP", "RSI(W)", "RSI(1H)", "ราคา",
+        "VOL (x/4)", "TREND (x/4)", "CMB (x/4)", "Liquidity",
+    )
+    print("| " + " | ".join(columns) + " |")
+    print("|---|---|---:|---:|---:|---|---|---|---|")
+    scored_rows = [
+        (symbol, row, _candidate_metrics(row, indexes))
+        for symbol, row in specified_rows
+    ]
+    scored_rows.sort(key=lambda item: -item[2][3])
+    if not scored_rows:
+        print("| — | — | — | — | — | — | — | — | — |")
+    for symbol, row, metrics in scored_rows:
+        volume, trend, combined, _ = metrics
+        values = (
+            f"[{symbol}]({finnomena_stock_url(symbol)})",
+            _display(_cell(row, indexes, "GROUP")),
+            _display(_cell(row, indexes, "RSI(W)")),
+            _display(_cell(row, indexes, "RSI(1H)")),
+            _format_price_fixed(_cell(row, indexes, "PRICE")),
+            volume,
+            trend,
+            combined,
+            _format_liquidity((liquidity or {}).get(symbol)),
+        )
+        print("| " + " | ".join(
+            value if index == 0 else _markdown_cell(value)
+            for index, value in enumerate(values)
+        ) + " |")
+
+    if missing_symbols:
+        print("\nไม่พบใน Snapshot ล่าสุด: " + ", ".join(missing_symbols))
+    if incomplete_symbols:
+        print(
+            "\n⚠️ ไม่มีค่า LAST_CANDLE หรือ UPDATED ใน Snapshot ล่าสุด: "
+            + ", ".join(incomplete_symbols)
+        )
+    return bool(missing_symbols or incomplete_symbols)
 
 
 def _has_buy_volume(row, indexes: dict[str, int], timeframe: str) -> bool:
@@ -836,6 +897,18 @@ def main(argv: Optional[list[str]] = None) -> int:
             if missing_summary_columns:
                 print(
                     "❌ ขาดคอลัมน์สำหรับสรุป UPDATE: "
+                    + ", ".join(missing_summary_columns),
+                    file=sys.stderr,
+                )
+                return 1
+        if command == "UPDATE" and selected_symbols:
+            missing_summary_columns = [
+                column for column in ("LAST_CANDLE", "UPDATED")
+                if column not in indexes
+            ]
+            if missing_summary_columns:
+                print(
+                    "❌ ขาดคอลัมน์สำหรับ UPDATE รายการที่ระบุ: "
                     + ", ".join(missing_summary_columns),
                     file=sys.stderr,
                 )
