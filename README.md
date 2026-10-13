@@ -30,7 +30,7 @@ SET_DATA_URL=https://docs.google.com/spreadsheets/d/<SHEET_ID>/edit
 SET_DATA_SHEET=All-SET-MTFS
 ```
 
-ทุกครั้งที่รัน `UPDATE` หรือ `CANDIDATE` ระบบจะดาวน์โหลด XLSX ใหม่และบันทึกที่ `downloads/All-SET-MTFS.xlsx`; หากดาวน์โหลดไม่สำเร็จจะไม่ใช้ snapshot เก่าแทน URL ต้องอ่านได้โดยไม่ลงชื่อเข้าใช้ หาก workbook มีข้อมูลส่วนตัว ให้สร้างสำเนาที่ไม่มีข้อมูลดังกล่าวก่อนเปิดสิทธิ์อ่าน
+ทุกครั้งที่รัน `UPDATE`, `UPDATE/<AKA>-<AKA>-...` หรือ `CANDIDATE` ระบบจะร้องขอ XLSX ใหม่จาก Google Sheets โดยส่งคำสั่งป้องกันการใช้ HTTP cache ก่อนตรวจและบันทึก snapshot ที่ `downloads/All-SET-MTFS.xlsx`; หากดาวน์โหลดไม่สำเร็จจะไม่ใช้ snapshot เก่าแทน URL ต้องอ่านได้โดยไม่ลงชื่อเข้าใช้ หาก workbook มีข้อมูลส่วนตัว ให้สร้างสำเนาที่ไม่มีข้อมูลดังกล่าวก่อนเปิดสิทธิ์อ่าน
 
 ### Liquidity จาก Settrade (ตัวเลือกเสริม)
 

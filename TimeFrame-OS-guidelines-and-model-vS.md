@@ -44,7 +44,7 @@ SET_DATA_SHEET=All-SET-MTFS
 ## UPDATE และ CANDIDATE
 
 - `UPDATE` ใช้ `./update.sh`; `UPDATE/<AKA>-<AKA>-...` ส่งเป็น argument เช่น `./update.sh UPDATE/PTT-AOT-CPALL`
-- ทุกครั้งจะดาวน์โหลด XLSX จาก `SET_DATA_URL` แล้วอ่านเฉพาะ workbook snapshot
+- ทุกครั้งที่เรียก `UPDATE`, `UPDATE/<AKA>-...` หรือ `CANDIDATE` จะร้องขอ XLSX ใหม่จาก `SET_DATA_URL` พร้อมคำสั่งป้องกันการใช้ HTTP cache แล้วอ่าน snapshot ที่เพิ่งดาวน์โหลดเท่านั้น; หากดาวน์โหลดล้มเหลวจะไม่ใช้ไฟล์เก่าแทน
 - `CANDIDATE` ใช้ `./candidate.sh`; เลือกหุ้นที่ผ่านครบทุกเงื่อนไข:
   1. `TREND(W) = UP`
   2. `TREND(D) = UP`

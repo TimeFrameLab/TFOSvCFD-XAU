@@ -130,7 +130,15 @@ def spreadsheet_export_url(sheet_url: str) -> str:
 
 
 def download_workbook(url: str) -> bytes:
-    request = Request(url, headers={"User-Agent": "TFOSvS/SET-data-validator"})
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "TFOSvS/SET-data-validator",
+            "Cache-Control": "no-cache, no-store, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
     try:
         with urlopen(request, timeout=30) as response:
             content = response.read(MAX_WORKBOOK_BYTES + 1)
