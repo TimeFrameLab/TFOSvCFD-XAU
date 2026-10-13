@@ -55,6 +55,7 @@ RELATIVE_STRENGTH_COLUMNS = (
 SYMBOL_PATTERN = re.compile(r"[A-Z0-9][A-Z0-9.&_-]{0,19}\Z")
 SHEET_ID_PATTERN = re.compile(r"/spreadsheets/d/([A-Za-z0-9_-]+)(?:/|$)")
 TIMESTAMP_COLUMNS = {"UPDATED", "LAST_CANDLE", "AS_OF", "TIMESTAMP", "DATE"}
+UPDATE_SUMMARY_SYMBOL = "ADVANC"
 CANDIDATE_COLUMNS = (
     "TREND(W)",
     "TREND(D)",
@@ -172,7 +173,7 @@ def validate_worksheet(worksheet) -> tuple[int, list[str], bool, int]:
         message = f"ขาดคอลัมน์ที่จำเป็น: {', '.join(missing_columns)}"
         return 0, [message], False, 1
 
-    timestamp_available = bool(TIMESTAMP_COLUMNS.intersection(indexes))
+    timestamp_available = {"LAST_CANDLE", "UPDATED"}.issubset(indexes)
     errors: list[str] = []
     error_count = 0
     symbols: set[str] = set()
@@ -247,6 +248,39 @@ def _cell(row, indexes: dict[str, int], column: str):
 
 def _display(value) -> str:
     return str(value).strip() if value is not None else ""
+
+
+def _print_update_summary(worksheet, indexes: dict[str, int]) -> None:
+    required_columns = ("AKA", "LAST_CANDLE", "UPDATED", "GROUP")
+    missing = [column for column in required_columns if column not in indexes]
+    if missing:
+        raise ValueError("ขาดคอลัมน์สำหรับสรุป UPDATE: " + ", ".join(missing))
+
+    target_row = next(
+        (
+            row for row in worksheet.iter_rows(min_row=2, values_only=True)
+            if _display(_cell(row, indexes, "AKA")).upper() == UPDATE_SUMMARY_SYMBOL
+        ),
+        None,
+    )
+    if target_row is None:
+        raise ValueError(f"ไม่พบ AKA {UPDATE_SUMMARY_SYMBOL} ใน snapshot")
+
+    timestamp_values = {
+        column: _display(_cell(target_row, indexes, column))
+        for column in ("LAST_CANDLE", "UPDATED")
+    }
+    missing_values = [column for column, value in timestamp_values.items() if not value]
+    if missing_values:
+        raise ValueError(
+            f"แถว {UPDATE_SUMMARY_SYMBOL}: ไม่มีค่า " + ", ".join(missing_values)
+        )
+
+    print("\nสรุปข้อมูลหุ้น")
+    print(f"{'AKA':<12}: {UPDATE_SUMMARY_SYMBOL} 🔔")
+    print(f"{'LAST_CANDLE':<12}: {timestamp_values['LAST_CANDLE']}")
+    print(f"{'UPDATED':<12}: {timestamp_values['UPDATED']}")
+    print(f"{'GROUP':<12}: {_display(_cell(target_row, indexes, 'GROUP'))}")
 
 
 def _markdown_cell(value) -> str:
@@ -786,9 +820,27 @@ def main(argv: Optional[list[str]] = None) -> int:
                 file=sys.stderr,
             )
             return 1
+        if command == "UPDATE" and not selected_symbols:
+            summary_columns = ("LAST_CANDLE", "UPDATED")
+            missing_summary_columns = [
+                column for column in summary_columns if column not in indexes
+            ]
+            if missing_summary_columns:
+                print(
+                    "❌ ขาดคอลัมน์สำหรับสรุป UPDATE: "
+                    + ", ".join(missing_summary_columns),
+                    file=sys.stderr,
+                )
+                return 1
 
         print(f"✅ ดาวน์โหลด snapshot: {WORKBOOK_PATH}")
         print("✅ โครงสร้างและชนิดข้อมูลพื้นฐานผ่านการตรวจสอบ")
+        if command == "UPDATE" and not selected_symbols:
+            try:
+                _print_update_summary(worksheet, indexes)
+            except ValueError as exc:
+                print(f"❌ {exc}", file=sys.stderr)
+                return 1
         symbols = list(dict.fromkeys(
             _display(_cell(row, indexes, "AKA")).upper()
             for row in worksheet.iter_rows(min_row=2, values_only=True)

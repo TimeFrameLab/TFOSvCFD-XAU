@@ -63,7 +63,16 @@ Settrade แจ้งว่า Sandbox จำกัดการเข้าถ�
 
 ## 📊 รูปแบบรายงานและเกณฑ์
 
-`UPDATE` จัดกลุ่มผลเป็น `BUY CONFIRMED`, `EARLY/WATCH`, `PULLBACK ZONE`, `OVEREXTENDED` และ `WAIT/RETEST` ตามข้อมูลใน snapshot โดยเรียง `EARLY/WATCH` ตาม `MACD_HIST_DELTA(W)` และ `PULLBACK ZONE` ตาม Combined Score หุ้นแสดงเป็นลิงก์ `https://www.finnomena.com/stock/<AKA>/advance` และใช้คอลัมน์ `GROUP`
+`UPDATE` ปกติแสดงสรุปหุ้น `ADVANC` จากแถวของ AKA นี้ใน snapshot ก่อนรายงานกลุ่ม โดยใช้รูปแบบ:
+
+```text
+AKA         : ADVANC 🔔
+LAST_CANDLE : <timestamp ของ candle ล่าสุด>
+UPDATED     : <timestamp ที่ข้อมูลอัปเดตล่าสุด>
+GROUP       : <GROUP>
+```
+
+คอลัมน์ `LAST_CANDLE` และ `UPDATED` ต้องมีอยู่และมีค่าในแถว `ADVANC`; หากขาด โปรแกรมจะแจ้งข้อผิดพลาดแทนการแสดงค่าที่คาดเดา `UPDATE` จากนั้นจัดกลุ่มผลเป็น `BUY CONFIRMED`, `EARLY/WATCH`, `PULLBACK ZONE`, `OVEREXTENDED` และ `WAIT/RETEST` ตามข้อมูลใน snapshot โดยเรียง `EARLY/WATCH` ตาม `MACD_HIST_DELTA(W)` และ `PULLBACK ZONE` ตาม Combined Score หุ้นแสดงเป็นลิงก์ `https://www.finnomena.com/stock/<AKA>/advance` และใช้คอลัมน์ `GROUP`
 
 `CANDIDATE` ผ่านเมื่อครบทุกเงื่อนไข:
 

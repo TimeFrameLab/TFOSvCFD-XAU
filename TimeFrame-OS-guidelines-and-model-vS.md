@@ -57,7 +57,17 @@ SET_DATA_SHEET=All-SET-MTFS
 
 ### รูปแบบรายงาน
 
-- `UPDATE` แสดงกลุ่ม `🟢 BUY CONFIRMED`, `🟡 EARLY/WATCH`, `🟠 PULLBACK ZONE`, `🔴 OVEREXTENDED` และ `⚪ WAIT/RETEST` ตาม signals ใน snapshot; `EARLY/WATCH` เรียงตาม `MACD_HIST_DELTA(W)` มากไปน้อย และ `PULLBACK ZONE` เรียงตาม Combined Score มากไปน้อย
+- `UPDATE` ปกติเริ่มด้วยสรุปจากแถว AKA `ADVANC` ใน snapshot ตามรูปแบบต่อไปนี้ ก่อนแสดงรายงานกลุ่ม:
+
+  ```text
+  AKA         : ADVANC 🔔
+  LAST_CANDLE : <timestamp ของ candle ล่าสุด>
+  UPDATED     : <timestamp ที่ข้อมูลอัปเดตล่าสุด>
+  GROUP       : <GROUP>
+  ```
+
+  ต้องมีคอลัมน์ `LAST_CANDLE`, `UPDATED` และค่าทั้งสองในแถว `ADVANC`; หากไม่พบข้อมูลให้รายงานข้อผิดพลาด ไม่คาดเดาหรือแสดงผลสำเร็จแทน `UPDATE/<AKA>-...` เป็นคำสั่งกรองและไม่แสดงสรุป ADVANC
+- หลังสรุป `UPDATE` แสดงกลุ่ม `🟢 BUY CONFIRMED`, `🟡 EARLY/WATCH`, `🟠 PULLBACK ZONE`, `🔴 OVEREXTENDED` และ `⚪ WAIT/RETEST` ตาม signals ใน snapshot; `EARLY/WATCH` เรียงตาม `MACD_HIST_DELTA(W)` มากไปน้อย และ `PULLBACK ZONE` เรียงตาม Combined Score มากไปน้อย
 - ตารางใช้ `GROUP` แทน `TIER`; หุ้นทุกแถวและรายชื่อ OVEREXTENDED เป็น Markdown link ไปยัง Finnomena ตามรูปแบบ `https://www.finnomena.com/stock/<AKA>/advance`
 - `CANDIDATE` แสดงหัวข้อ `ผลการค้นหา CANDIDATE (PRE-ENTRY-Like Pattern) — n หุ้น` ตารางแสดงไม่เกิน 20 รายการ เรียง `MACD_HIST_DELTA(W)` มากไปน้อย และคงลำดับคอลัมน์ `# | หุ้น | GROUP | ราคา (THB) | MACD Δ(W) | Entry Zone (4H) | 1H Trigger | Liquidity`
 - เมื่อมี Settrade credentials ระบบสมัคร feed read-only สำหรับมูลค่าซื้อขายสะสมวันนี้ (`InfoV3.total_value`) และ bid/ask 10 ระดับ (`BidOfferV3`); แสดง turnover, ราคา bid/ask ระดับแรก, spread และผลรวมปริมาณ bid/ask 10 ระดับเป็นตัวเลขดิบเท่านั้น ไม่จัดระดับ HIGH/MEDIUM/LOW

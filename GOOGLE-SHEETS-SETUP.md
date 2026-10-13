@@ -68,7 +68,7 @@
 - `./candidate.sh` หรือ `./candidate.sh CANDIDATE` — ดาวน์โหลด snapshot ใหม่และคัดหุ้นที่ผ่านครบทั้ง 7 เงื่อนไข Candidate
 - `python3 set_update.py` — ทำงานเทียบเท่า `UPDATE` โดยตรง
 
-รายงาน `UPDATE` จัดกลุ่มหุ้นเป็น `BUY CONFIRMED`, `EARLY/WATCH`, `PULLBACK ZONE`, `OVEREXTENDED` และ `WAIT/RETEST` ตามสัญญาณใน snapshot โดยเรียง `EARLY/WATCH` ตาม `MACD_HIST_DELTA(W)` และ `PULLBACK ZONE` ตาม Combined Score; แสดง `GROUP` และชื่อตารางเป็นลิงก์ Finnomena. `CANDIDATE` แสดงจำนวนผู้ผ่านทั้งหมดและตารางไม่เกิน 20 หุ้น เรียง `MACD_HIST_DELTA(W)` จากมากไปน้อย พร้อม `GROUP`, ราคา, `ENTRY_ZONE(4H)` และ `ENTRY_TRIGGER(1H)`. Liquidity แสดงตัวเลขดิบจาก Settrade เมื่อได้รับข้อมูลจริง มิฉะนั้นจะแสดง `⚫ N/A` พร้อมข้อความแจ้งเหตุ
+`UPDATE` ปกติเริ่มด้วยสรุปหุ้น `ADVANC` โดยอ่าน `AKA`, `LAST_CANDLE`, `UPDATED` และ `GROUP` จากแถวเดียวกันใน snapshot; ต้องมีคอลัมน์ timestamp ทั้งคู่และมีค่า หากไม่มีจะแจ้งข้อผิดพลาด `UPDATE` แบบระบุ AKA ไม่แสดงสรุป ADVANC นี้ จากนั้นรายงานจัดกลุ่มหุ้นเป็น `BUY CONFIRMED`, `EARLY/WATCH`, `PULLBACK ZONE`, `OVEREXTENDED` และ `WAIT/RETEST` ตามสัญญาณใน snapshot โดยเรียง `EARLY/WATCH` ตาม `MACD_HIST_DELTA(W)` และ `PULLBACK ZONE` ตาม Combined Score; แสดง `GROUP` และชื่อตารางเป็นลิงก์ Finnomena. `CANDIDATE` แสดงจำนวนผู้ผ่านทั้งหมดและตารางไม่เกิน 20 หุ้น เรียง `MACD_HIST_DELTA(W)` จากมากไปน้อย พร้อม `GROUP`, ราคา, `ENTRY_ZONE(4H)` และ `ENTRY_TRIGGER(1H)`. Liquidity แสดงตัวเลขดิบจาก Settrade เมื่อได้รับข้อมูลจริง มิฉะนั้นจะแสดง `⚫ N/A` พร้อมข้อความแจ้งเหตุ
 
 รายงานใช้ข้อมูล signals ที่คำนวณไว้ในชีต ไม่มีการจัดอันดับหรือคำนวณ MPTM ใหม่ การเชื่อมต่อ Settrade (ถ้ากำหนด credentials) ใช้เฉพาะ read-only market data และไม่ส่งคำสั่งซื้อขาย
 
