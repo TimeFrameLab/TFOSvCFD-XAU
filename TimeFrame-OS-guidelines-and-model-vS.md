@@ -97,11 +97,3 @@ Settrade ระบุว่า Sandbox จำกัดการเข้าถ�
 
 - `UPDATE`/`CANDIDATE` อ่าน snapshot จาก Google Sheets เท่านั้น; ไม่มีการเชื่อมต่อโบรกเกอร์หรือคำสั่งซื้อขาย
 - ก่อนพัฒนาการวิเคราะห์หรือซื้อขายจริง ต้องยืนยันแหล่งข้อมูล/สิทธิ์ใช้งาน freshness, benchmark, ปฏิทินตลาด, corporate actions และกฎหลักทรัพย์ พร้อมทดสอบกับข้อมูลที่ตรวจสอบย้อนกลับได้
-
-## ทดสอบ
-
-รันทดสอบ unit tests ของตัวตรวจ:
-
-```bash
-python3 -m unittest -v test_set_update.py
-```

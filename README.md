@@ -94,10 +94,4 @@ Settrade แจ้งว่า Sandbox จำกัดการเข้าถ�
 - ข้อมูลที่แสดงเป็น signals จาก snapshot และ market data read-only ไม่ใช่คำแนะนำซื้อขาย; รายงานไม่แก้ไข workbook ต้นทาง
 - เก็บ `.env` ไว้ในเครื่อง และอย่าเผยแพร่ workbook ที่มีข้อมูลส่วนตัว
 
-## 🧪 ทดสอบ
-
-```bash
-python3 -m unittest -v test_set_update.py
-```
-
 คู่มือการตั้งค่าเพิ่มเติมอยู่ที่ [GOOGLE-SHEETS-SETUP.md](./GOOGLE-SHEETS-SETUP.md) และแนวทางการทำงานอยู่ที่ [TimeFrame-OS-guidelines-and-model-vS.md](./TimeFrame-OS-guidelines-and-model-vS.md).
