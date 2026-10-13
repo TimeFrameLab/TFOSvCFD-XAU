@@ -260,7 +260,7 @@ def _display(value) -> str:
     return str(value).strip() if value is not None else ""
 
 
-def _print_update_summary(worksheet, indexes: dict[str, int]) -> None:
+def _update_summary_row(worksheet, indexes: dict[str, int]):
     required_columns = ("AKA", "LAST_CANDLE", "UPDATED", "GROUP")
     missing = [column for column in required_columns if column not in indexes]
     if missing:
@@ -285,7 +285,14 @@ def _print_update_summary(worksheet, indexes: dict[str, int]) -> None:
         raise ValueError(
             f"แถว {UPDATE_SUMMARY_SYMBOL}: ไม่มีค่า " + ", ".join(missing_values)
         )
+    return target_row
 
+
+def _print_update_summary(target_row, indexes: dict[str, int]) -> None:
+    timestamp_values = {
+        column: _display(_cell(target_row, indexes, column))
+        for column in ("LAST_CANDLE", "UPDATED")
+    }
     print("\nสรุปข้อมูลหุ้น")
     print(f"{'AKA':<12}: {UPDATE_SUMMARY_SYMBOL} 🔔")
     print(f"{'LAST_CANDLE':<12}: {timestamp_values['LAST_CANDLE']}")
@@ -520,11 +527,11 @@ def _classify_update_rows(rows: list, indexes: dict[str, int]) -> dict[str, list
     return categories
 
 
-def _print_update_liquidity_rounds(
+def _collect_update_liquidity(
     rows: list,
     indexes: dict[str, int],
     config: dict[str, str],
-) -> None:
+) -> tuple[dict[str, dict[str, Optional[float]]], list[tuple[str, int, int]], list[str]]:
     categories = _classify_update_rows(rows, indexes)
     displayed_categories = (
         ("BUY CONFIRMED", "BUY_CONFIRMED", None),
@@ -533,6 +540,9 @@ def _print_update_liquidity_rounds(
         ("OVEREXTENDED", "OVEREXTENDED", None),
     )
     started_at = time.monotonic()
+    all_liquidity: dict[str, dict[str, Optional[float]]] = {}
+    round_summaries: list[tuple[str, int, int]] = []
+    all_issues: list[str] = []
     missing_credentials = [
         key for key in ("SETTRADE_APP_ID", "SETTRADE_APP_SECRET")
         if not config.get(key, "").strip()
@@ -547,20 +557,21 @@ def _print_update_liquidity_rounds(
             _display(_cell(row, indexes, "AKA")).upper()
             for row in visible_rows
         ]
-        remaining = max(
-            SETTRADE_LIQUIDITY_MAX_DURATION_SECONDS - (time.monotonic() - started_at),
-            0,
-        )
-        print(f"\n🔄 Liquidity refresh — {title} ({len(symbols)} หุ้น)")
         if missing_credentials:
             liquidity = {}
             issues = [
                 "ไม่ได้กำหนด " + ", ".join(missing_credentials) + " ใน .env"
             ]
         else:
+            remaining = max(
+                SETTRADE_LIQUIDITY_MAX_DURATION_SECONDS
+                - (time.monotonic() - started_at),
+                0,
+            )
             liquidity, issues = _collect_settrade_liquidity(
                 symbols, config, max_duration_seconds=remaining
             )
+        all_liquidity.update(liquidity)
         required_metric_keys = {
             "turnover", "bid_price", "ask_price", "spread", "bid_depth", "ask_depth",
         }
@@ -568,16 +579,16 @@ def _print_update_liquidity_rounds(
             required_metric_keys.issubset(metrics)
             for metrics in liquidity.values()
         )
-        print(f"ข้อมูล feed ครบ {complete_count}/{len(symbols)} หุ้น")
-        print("| AKA | Liquidity |")
-        print("|---|---|")
-        for symbol in symbols:
-            print(f"| {symbol} | {_markdown_cell(_format_liquidity(liquidity.get(symbol)))} |")
-        if issues:
-            for issue in issues[:10]:
-                print(f"⚠️ Liquidity unavailable: {issue}")
-            if len(issues) > 10:
-                print(f"⚠️ Liquidity unavailable: และอีก {len(issues) - 10} ข้อผิดพลาด")
+        round_summaries.append((title, complete_count, len(symbols)))
+        all_issues.extend(f"{title}: {issue}" for issue in issues)
+    return all_liquidity, round_summaries, all_issues
+
+
+def _print_update_liquidity_summary(
+    round_summaries: list[tuple[str, int, int]],
+) -> None:
+    for title, complete_count, total_count in round_summaries:
+        print(f"Liquidity feed ครบ — {title}: {complete_count}/{total_count} หุ้น")
 
 
 def _format_liquidity(metrics: Optional[dict[str, Optional[float]]]) -> str:
@@ -822,12 +833,11 @@ def _print_update_status_report(
         ("หุ้น", "GROUP", "RSI(W)", "RSI(1H)", "ราคา", "VOL (x/4)", "TREND (x/4)", "CMB (x/4)", "Liquidity"),
         limit=10, liquidity=liquidity,
     )
-    overextended = categories["OVEREXTENDED"]
-    print(f"\n🔴 OVEREXTENDED — {len(overextended)} หุ้น")
-    print(" · ".join(
-        f"[{_display(_cell(row, indexes, 'AKA')).upper()}]({finnomena_stock_url(_display(_cell(row, indexes, 'AKA')).upper())})"
-        for row in overextended
-    ) or "ไม่มีหุ้นในสถานะนี้")
+    _print_status_table(
+        f"🔴 OVEREXTENDED — {len(categories['OVEREXTENDED'])} หุ้น",
+        categories["OVEREXTENDED"], indexes,
+        ("หุ้น", "GROUP", "Liquidity"), liquidity=liquidity,
+    )
     print(f"\n⚪ WAIT/RETEST — {len(categories['WAIT_RETEST'])} หุ้น")
 
 
@@ -1005,9 +1015,10 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         print(f"✅ ดาวน์โหลด snapshot: {WORKBOOK_PATH}")
         print("✅ โครงสร้างและชนิดข้อมูลพื้นฐานผ่านการตรวจสอบ")
+        update_summary_row = None
         if command == "UPDATE" and not selected_symbols:
             try:
-                _print_update_summary(worksheet, indexes)
+                update_summary_row = _update_summary_row(worksheet, indexes)
             except ValueError as exc:
                 print(f"❌ {exc}", file=sys.stderr)
                 return 1
@@ -1045,10 +1056,20 @@ def main(argv: Optional[list[str]] = None) -> int:
                 config,
                 max_duration_seconds=SETTRADE_LIQUIDITY_MAX_DURATION_SECONDS,
             )
+            update_liquidity_summaries = []
+        elif command == "UPDATE":
+            (
+                liquidity,
+                update_liquidity_summaries,
+                liquidity_issues,
+            ) = _collect_update_liquidity(rows, indexes, config)
         else:
             liquidity, liquidity_issues = {}, []
+            update_liquidity_summaries = []
         try:
             if command == "UPDATE":
+                if not selected_symbols:
+                    _print_update_summary(update_summary_row, indexes)
                 missing_symbols = _print_update_report(
                     worksheet, indexes, selected_symbols, liquidity
                 )
@@ -1057,8 +1078,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         except ValueError as exc:
             print(f"❌ {exc}", file=sys.stderr)
             return 1
-        if command == "UPDATE" and not selected_symbols:
-            _print_update_liquidity_rounds(rows, indexes, config)
+        if update_liquidity_summaries:
+            _print_update_liquidity_summary(update_liquidity_summaries)
         if not timestamp_available:
             print("⚠️ ไม่พบคอลัมน์เวลาอ้างอิง จึงตรวจความสดของข้อมูลไม่ได้")
         else:
