@@ -1,0 +1,19 @@
+//@version=6
+indicator("TFOS CFD Gold Avg Turnover 20D Proxy", overlay=false)
+
+if barstate.isfirst and not (timeframe.isweekly and timeframe.multiplier == 1)
+    runtime.error("Set the chart timeframe to 1W before exporting.")
+
+has_four_closed_weeks = (
+    not na(close[1]) and not na(close[2]) and
+    not na(close[3]) and not na(close[4]) and
+    not na(volume[1]) and not na(volume[2]) and
+    not na(volume[3]) and not na(volume[4])
+)
+
+avg_turnover_20d = has_four_closed_weeks ? (
+    close[1] * volume[1] + close[2] * volume[2] +
+    close[3] * volume[3] + close[4] * volume[4]
+) / 20.0 : na
+
+plot(avg_turnover_20d, title="TFOS_AVG_TURNOVER_20D_USD_DAY", color=color.teal, linewidth=2)
