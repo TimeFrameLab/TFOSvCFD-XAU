@@ -44,126 +44,77 @@ TRADINGVIEW_SYMBOL_MAP=XAU=OANDA:XAUUSD
 | `CANDIDATE` | `./candidate.sh` | คัดรายการที่ W/D/4H พร้อมแล้วและรอ 1H Trigger |
 | `REVIEW` | พิมพ์ในแชต | ทบทวนแนวทางและข้อจำกัด |
 
-`UPDATE` และ `UPDATE/<AKA>` สร้าง `downloads/All-CFD-MTFS_output.xlsx` ซึ่งมีชีต `Latest Snapshot`, `Master Signal Log` และ `REF.`; `CANDIDATE` แสดงผลใน Terminal โดยไม่เขียน workbook เพิ่ม
-
 ## 📌 ข้อมูลสำคัญ
 
 ทุกรอบจะดาวน์โหลด XLSX ใหม่จาก Google Sheets ก่อนประมวลผลและบันทึก snapshot ที่ `downloads/All-CFD-MTFS.xlsx` หากดาวน์โหลดหรืออ่านไฟล์ไม่สำเร็จ คำสั่งจะหยุด ไม่ใช้ snapshot เก่าแทน
 
-MPTM ในรายงานอ่านจาก snapshot เท่านั้น ส่วน current-week activity และ `AvgValue.Traded_30d` ดึงโดยตรงจาก TradingView CFD Scanner ไม่ต้องใช้ Pine CSV หรือ OANDA credentials
+MPTM ในรายงานอ่านจาก snapshot เท่านั้น รายละเอียด schema, เกณฑ์คัดกรอง และรูปแบบผลลัพธ์อยู่ในหัวข้อ [📊 รูปแบบรายงานและเกณฑ์](#-รูปแบบรายงานและเกณฑ์)
 
-## 🧩 แนวทางการแสดงผลแบบ TFOS สำหรับ CFD Gold
+## 📊 รูปแบบรายงานและเกณฑ์
 
-แนวทางนี้กำหนดรูปแบบรายงานในแชตให้สม่ำเสมอ โดยยึด snapshot MPTM ที่ดาวน์โหลดสำเร็จในรอบนั้นและข้อมูล CFD ที่ workflow ดึงได้จริง ห้ามอนุมานหรือเติมค่าที่ไม่มีในข้อมูล
+ทุกคำสั่งยึด snapshot MPTM ที่ดาวน์โหลดสำเร็จในรอบปัจจุบัน และแสดง timestamp จากต้นทางตามจริง ไม่คาดเดาค่าที่ขาด รายงานไม่ refresh Apps Script, ไม่เขียนกลับ Google Sheets และไม่ส่งคำสั่งซื้อขาย
 
-### กลุ่มสถานะ
+### `UPDATE`
 
-จัดกลุ่มจากคอลัมน์ใน snapshot ตาม logic ของรายงาน:
-
-- 🟢 `BUY CONFIRMED`: `ACTION` มีคำว่า `BUY`
-- 🔵 `EXIT`: `ACTION` มีคำว่า `EXIT` หรือ `SELL`
-- 🔴 `OVEREXTENDED`: `SETUP(D)` มีคำว่า `EXTENDED` และไม่เข้าเงื่อนไข BUY/EXIT ก่อนหน้า
-- 🟡 `PRE-ENTRY — WAIT 1H`: ผ่านเงื่อนไข CANDIDATE คือ `BIAS(W)` เป็น bullish, `SETUP(D)` เป็น ready/recovery/pullback, `ENTRY_ZONE(4H)` สีเขียว และ `ENTRY_TRIGGER(1H)` สีเหลือง
-- ⚪ `WAIT/RETEST`: ไม่เข้าเงื่อนไขข้างต้น
-
-ใช้ชื่อ symbol เป็น Markdown link ไปยัง TradingView ตาม ticker ใน `TRADINGVIEW_SYMBOL`; รูปแบบลิงก์คือ `https://www.tradingview.com/chart/?symbol=<URL-encoded ticker>` เช่น [XAU](https://www.tradingview.com/chart/?symbol=OANDA%3AXAUUSD). โปรเจกต์นี้ไม่มี `GROUP` แบบหุ้นไทย จึงไม่สร้าง GROUP, Finnomena link, VOL/TREND/CMB score หรือเกณฑ์ที่ไม่มีอยู่ใน snapshot/implementation
-
-### รูปแบบ `UPDATE`
-
-เริ่มด้วยเวลาที่ดาวน์โหลด snapshot และแหล่งข้อมูล จากนั้นแสดง metadata ของแต่ละ symbol จากแถวต้นทาง:
-
-```text
-AKA         : XAU
-TRADINGVIEW : OANDA:XAUUSD
-LAST_CANDLE : <ค่าจาก snapshot>
-UPDATED     : <ค่าจาก snapshot>
-```
-
-แยกตารางตามสถานะ โดยใช้หัวคอลัมน์ชุดเดียวกันและคงลำดับนี้:
+`./update.sh` แสดงจำนวนสัญลักษณ์ทั้งหมดและตารางเดียวตามลำดับคอลัมน์:
 
 `AKA | TRADINGVIEW_SYMBOL | MPTM_STATUS | ACTION | BIAS(W) | SETUP(D) | ENTRY_ZONE(4H) | ENTRY_TRIGGER(1H) | PRICE | RSI(W) | RSI(D) | RSI(1H) | MACD_HIST_DELTA(W) | CURRENT_PRICE_VOLUME_ACTIVITY_PROXY | AVG_VALUE_TRADED_30D`
 
-หัวข้อแต่ละกลุ่มต้องแสดงจำนวน symbol; `WAIT/RETEST` แสดงเฉพาะหัวข้อกับจำนวน ไม่แสดงรายชื่อหรือตาราง ตัวอย่างเช่น `⚪ WAIT/RETEST — 1 สัญลักษณ์`. กลุ่มอื่นแสดงทุกรายการที่อยู่ใน snapshot โดยไม่ตัดเหลือ TOP N และไม่สลับลำดับคอลัมน์
+ไม่แบ่งกลุ่ม ไม่ตัดเหลือ TOP N และไม่ซ่อน `WAIT/RETEST`; แสดงข้อมูลทุกสัญลักษณ์ใน snapshot
 
-### รูปแบบ `UPDATE/<AKA>-<AKA>-...`
+### `UPDATE/<AKA>-<AKA>-...`
 
-แสดง metadata `AKA`, `TRADINGVIEW`, `LAST_CANDLE`, `UPDATED` แยกทีละ symbol ตามลำดับที่ร้องขอ แล้วแสดงหัวข้อ `🔵 SPECIFIED CFD — n สัญลักษณ์` และตาราง:
+`./update.sh UPDATE/XAU` แสดงเฉพาะสัญลักษณ์ที่ระบุ คงลำดับตามคำขอ และใช้ตาราง:
 
 `AKA | TRADINGVIEW_SYMBOL | MPTM_STATUS | ACTION | BIAS(W) | SETUP(D) | ENTRY_ZONE(4H) | ENTRY_TRIGGER(1H) | PRICE | RSI(W) | RSI(D) | RSI(1H) | MACD_HIST_DELTA(W) | CURRENT_PRICE_VOLUME_ACTIVITY_PROXY | AVG_VALUE_TRADED_30D | LAST_CANDLE | UPDATED`
 
-AKA ในทุกแถวเป็นลิงก์ TradingView; คงลำดับที่ร้องขอ ไม่จัดอันดับด้วย score ที่ไม่มีในระบบ หาก AKA ไม่อยู่ใน snapshot ให้รายงานข้อผิดพลาดและไม่อ้างว่าคำสั่งสำเร็จ
+AKA ที่ไม่อยู่ใน snapshot ทำให้รายงานข้อผิดพลาดและคำสั่งจบด้วย error status
 
-### รูปแบบ `CANDIDATE`
+### `CANDIDATE`
 
-ใช้หัวข้อ `ผลการค้นหา CANDIDATE (MPTM W→D→4H→1H, รอ 1H Trigger) — n รายการ` และ schema เฉพาะนี้:
+`./candidate.sh` คัดกรองสัญญาณ Pre-entry ตามเงื่อนไขทั้งหมด:
+
+1. `BIAS(W)` มีสถานะ `BULLISH`
+2. `SETUP(D)` มีสถานะ `READY`, `RECOVERY` หรือ `PULLBACK`
+3. `ENTRY_ZONE(4H)` เป็นสถานะสีเขียว
+4. `ENTRY_TRIGGER(1H)` เป็นสถานะสีเหลืองเพื่อรอ 1H Trigger
+
+รายงานจำนวนผู้ผ่านทั้งหมด เรียง `MACD_HIST_DELTA(W)` จากมากไปน้อย และแสดงไม่เกิน 25 รายการด้วยคอลัมน์:
 
 `# | AKA | TRADINGVIEW_SYMBOL | PRICE | MACD_HIST_DELTA(W) | BIAS(W) | SETUP(D) | ENTRY_ZONE(4H) | ENTRY_TRIGGER(1H) | LAST_CANDLE | UPDATED | CURRENT_PRICE_VOLUME_ACTIVITY_PROXY | AVG_VALUE_TRADED_30D`
 
-เรียง `MACD_HIST_DELTA(W)` จากมากไปน้อย แสดงจำนวนผู้ผ่านทั้งหมดและไม่เกิน 25 แถว ตามพฤติกรรม CLI; ลำดับคอลัมน์ต้องคงเดิมและ AKA ในรายงานแชตเป็นลิงก์ TradingView
+หากไม่มีรายการผ่าน จะแสดงจำนวน 0 และแถว placeholder `—`; คำสั่งนี้แสดงผลใน Terminal และไม่เขียน Excel report
 
-### ✅ ข้อกำหนดผลลัพธ์
+### สถานะ MPTM ที่รายงาน
 
-- รายงานในแชตเป็น Markdown ที่ render ได้จริง ไม่ครอบด้วย code fence; คงข้อมูล คอลัมน์ และคำเตือนตามผลจริง
-- ใช้เฉพาะ snapshot ที่ดาวน์โหลดสำเร็จล่าสุดในรอบปัจจุบัน ไม่อ้างอิง snapshot เก่าหรือใช้ HTTP cache เป็นข้อมูลใหม่
-- แสดง timestamp `LAST_CANDLE`/`UPDATED` ตามค่าต้นทางเท่านั้น; หากว่างให้แสดง `⚫ N/A` และแจ้งเตือน ไม่คาดเดาหรือสร้าง timestamp
-- แสดง current-week activity กับ `AvgValue.Traded_30d` แยกคอลัมน์; ค่า 30D อ่านตรงจาก TradingView Scanner ไม่คำนวณจากแท่งเดือน
-- หาก TradingView Scanner ไม่มีข้อมูลให้แสดง `⚫ N/A` พร้อม warning และไม่ใช้ค่ารอบก่อนทดแทน
-- แจ้งข้อผิดพลาดเมื่อ snapshot ดาวน์โหลด/อ่านไม่ได้, schema ที่จำเป็นขาด, หรือ AKA ที่ระบุไม่พบ; อย่ารายงานผลสำเร็จโดยไม่มีข้อมูล
-- `UPDATE` สร้าง/อัปเดต Excel report; `CANDIDATE` แสดงผลใน Terminal และไม่เขียน workbook
+สถานะจัดจากค่าที่มีอยู่ใน snapshot ตามลำดับความสำคัญต่อไปนี้:
 
-## 🧩 Price-volume activity proxy
+- 🟢 `BUY CONFIRMED`: `ACTION` มีคำว่า `BUY`
+- 🔵 `EXIT`: `ACTION` มีคำว่า `EXIT` หรือ `SELL`
+- 🔴 `OVEREXTENDED`: `SETUP(D)` มีคำว่า `EXTENDED`
+- 🟡 `PRE-ENTRY — WAIT 1H`: ผ่านเงื่อนไข `CANDIDATE`
+- ⚪ `WAIT/RETEST`: ไม่เข้าเงื่อนไขข้างต้น
 
-รายงานแยกค่า activity ของสัปดาห์ปัจจุบันและค่าเฉลี่ย traded value 30D:
+ลำดับนี้หมายถึง `BUY` จะถูกจัดก่อน `EXIT`, `OVEREXTENDED` และ `PRE-ENTRY`. สถานะเป็นการจัดรูปแบบ snapshot ไม่ใช่การยืนยัน signal หรือคำสั่งซื้อขาย
 
-```text
-Current week activity proxy = current 1W close × current 1W volume
-30D average traded value = TradingView AvgValue.Traded_30d
-```
+### ค่ากิจกรรมและข้อจำกัด
 
-ทั้งสองค่าดึงจาก TradingView CFD Scanner ตาม `TRADINGVIEW_SYMBOL_MAP`; weekly activity คำนวณจากแท่งสัปดาห์ปัจจุบัน ส่วนค่า `AvgValue.Traded_30d` รายงานตรงจากฟิลด์ของ TradingView โดยไม่คำนวณ `close × volume` เองหรือหารด้วย 20. ระบบไม่ใช้ Pine CSV หรือ OANDA API.
+- `CURRENT_PRICE_VOLUME_ACTIVITY_PROXY` = `close|1W × volume|1W` จาก TradingView CFD Scanner เป็น proxy ของแท่งสัปดาห์ปัจจุบัน ซึ่งอาจยังไม่ปิด
+- `AVG_VALUE_TRADED_30D` = `AvgValue.Traded_30d` จาก TradingView CFD Scanner โดยตรง ไม่คำนวณจากแท่งเดือน ไม่คูณ `close × volume` ซ้ำ และไม่หารด้วย 20
+- ค่า 30D และ volume ขึ้นกับนิยาม/ข้อมูลของผู้ให้บริการ CFD ไม่รับรองว่าเท่ากับยอดของโบรกเกอร์รายใดรายหนึ่งหรือ turnover ทั้งตลาด และไม่ใช่ bid/ask depth ห้ามใช้ proxy จัดระดับ `HIGH/MEDIUM/LOW` โดยไม่มีเกณฑ์ที่ยืนยัน
+- หาก Scanner ไม่มีข้อมูลที่ใช้ได้ ให้แสดง `⚫ N/A` พร้อมคำเตือน และไม่แทนด้วยค่ารอบก่อน ระบบไม่ใช้ Pine CSV หรือ OANDA API
+- ใช้ TradingView CFD Scanner endpoint ซึ่งไม่ได้ประกาศเป็น public API อย่างเป็นทางการและอาจเปลี่ยนแปลงหรือหยุดให้บริการ
 
-**ข้อจำกัดของ metric:** `AvgValue.Traded_30d` เป็นค่าตามนิยาม/ข้อมูลของ TradingView สำหรับ CFD นั้น ๆ; ไม่รับรองว่าเท่ากับมูลค่าซื้อขายที่โบรกเกอร์รายใดรายหนึ่งรายงานหรือเป็น market-wide turnover และไม่ใช่ bid/ask depth. ห้ามนำ volume proxy ไปจัดระดับ `HIGH/MEDIUM/LOW` โดยไม่มีเกณฑ์ยืนยัน.
+### Excel report และรูปแบบในแชต
 
-Scanner ใช้ ticker เช่น `OANDA:XAUUSD` ผ่าน CFD endpoint โดยไม่ใช้ session cookie หรือ credential; endpoint นี้ไม่ได้ประกาศเป็น public API อย่างเป็นทางการและอาจเปลี่ยนแปลงหรือหยุดให้บริการ
+`UPDATE` และ `UPDATE/<AKA>` สร้าง/อัปเดต `downloads/All-CFD-MTFS_output.xlsx` มีชีต `Latest Snapshot`, `Master Signal Log` และ `REF.`; `Master Signal Log` เก็บประวัติ และ schema รุ่นเก่าที่รองรับจะถูกย้ายไปชีต legacy แทนการแปลงเป็นค่า 30D ใหม่ `CANDIDATE` ไม่เขียน workbook
 
-## 🔍 MPTM และ CANDIDATE
-
-ระบบสร้างสัญญาณต้นทางจัดลำดับ `W → D → 4H → 1H`:
-
-1. `BIAS(W)` ให้บริบทแนวโน้มภาพใหญ่
-2. `SETUP(D)` ระบุความพร้อมของ setup
-3. `ENTRY_ZONE(4H)` ยืนยันโซน
-4. `ENTRY_TRIGGER(1H)` ยืนยันจังหวะเข้า
-5. `ACTION` เป็นผลสรุปรวมจากแต่ละชั้นตาม logic ต้นทาง
-
-`CANDIDATE` ใช้รูปแบบ Pre-entry ที่สอดคล้องกับ workflow ใน Apps Script:
-
-- `BIAS(W)` เป็น `BULLISH`
-- `SETUP(D)` เป็น `READY`, `RECOVERY` หรือ `PULLBACK`
-- `ENTRY_ZONE(4H)` เป็นสถานะสีเขียว
-- `ENTRY_TRIGGER(1H)` ยังเป็นสถานะสีเหลืองเพื่อรอการยืนยัน
-
-ตัวกรองนี้เรียงตาม `MACD_HIST_DELTA(W)` จากมากไปน้อย แสดงจำนวนผู้ผ่านทั้งหมดและไม่เกิน 25 แถว ไม่สร้างหรือคำนวณ signal ใหม่จาก quote snapshot และไม่ถือว่าเป็นคำสั่งซื้อขาย
-
-## 📊 สถานะในรายงาน
-
-- **BUY CONFIRMED**: `ACTION` มีสถานะ BUY จาก snapshot ต้นทาง
-- **EXIT**: `ACTION` มีสถานะ EXIT/SELL จาก snapshot ต้นทาง
-- **OVEREXTENDED**: `SETUP(D)` ระบุ EXTENDED
-- **PRE-ENTRY — WAIT 1H**: ผ่านเงื่อนไข CANDIDATE ข้างต้น
-- **WAIT/RETEST**: ยังไม่เข้ากลุ่มข้างต้น
-
-สถานะเหล่านี้เป็นการจัดรูปแบบข้อมูลจากต้นทางเท่านั้น ไม่ใช่การรับรอง signal หรือผลตอบแทน
-
-เมื่อนำผลไปสรุปในแชต ให้แสดงรายการสถานะที่มีข้อมูลเป็นตารางและทำชื่อ symbol เป็นลิงก์ TradingView; สำหรับ `WAIT/RETEST` ให้แสดงเฉพาะหัวข้อกับจำนวนรายการ ไม่ต้องแจกแจงรายชื่อ แนวทางนี้เป็นรูปแบบการสรุป ไม่ได้หมายความว่า CLI ส่งข้อความหรือ Telegram notification เอง
+เมื่อนำผลไปสรุปในแชต ให้ใช้ Markdown ที่ render ได้จริงและรักษาคอลัมน์ ลำดับ จำนวน คำเตือน และข้อมูลตามผลจริง อาจทำ `AKA` เป็นลิงก์ TradingView โดยใช้ ticker จาก `TRADINGVIEW_SYMBOL` เช่น [XAU](https://www.tradingview.com/chart/?symbol=OANDA%3AXAUUSD); ห้ามสร้าง GROUP, Finnomena link, VOL/TREND/CMB score หรือเกณฑ์ที่ไม่มีในระบบ รายงานไม่ใช่ Telegram notification
 
 ## 🛡️ ขอบเขตและข้อควรระวัง
 
 - ระบบนี้ไม่มีราคา CFD จาก broker account และไม่ส่งคำสั่งซื้อขาย
-- ค่า volume และ Liquidity proxy เป็น provider-specific; ไม่เทียบเท่า market-wide turnover หรือ order-book liquidity
-- TradingView Scanner เป็น endpoint ที่ไม่รับรองความคงที่ของ schema; เมื่อเรียกไม่สำเร็จให้ตรวจข้อมูลและลองภายหลัง
 - ติดตามการแจ้งเตือน 1H Trigger จากช่องทาง [TimeFrame GOLD Notify](https://t.me/TimeFrameGOLDnotify); repository นี้ไม่ได้ส่ง Telegram notification
-- CLI ตรวจความครบถ้วนของ snapshot แต่ไม่ได้สั่งให้ Apps Script อัปเดต และไม่ได้ประเมินความสดของ `UPDATED`
 - ห้ามใส่ API key, session cookie, Telegram token หรือข้อมูลบัญชีใน source code, `.env.example` หรือ Git
 - ผลการคำนวณไม่รับรองผลลัพธ์ในอนาคต และไม่แทนการจัดการความเสี่ยง
 
