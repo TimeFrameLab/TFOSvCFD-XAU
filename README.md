@@ -52,13 +52,63 @@ TRADINGVIEW_SYMBOL_MAP=XAU=OANDA:XAUUSD
 
 MPTM ในรายงานอ่านจาก snapshot เท่านั้น ส่วน current-week turnover ดึงจาก TradingView Scanner และ Avg Turnover 20D อ่านจาก Pine CSV ที่ export แยกไว้ หากข้อมูลไม่ครบจะแสดง `⚫ N/A` และคำเตือน ไม่มีการใช้ค่าเก่าทดแทน
 
-### ✅ มาตรฐานการแสดงผล
+## 🧩 แนวทางการแสดงผลแบบ TFOS สำหรับ CFD Gold
 
-- แสดง `AKA`, TradingView symbol, สถานะ MPTM, `ACTION`, องค์ประกอบ W/D/4H/1H, ราคา, RSI, MACD delta และเวลา `LAST_CANDLE`/`UPDATED` จาก snapshot
-- ระบุแหล่งและเวลาที่ดาวน์โหลด snapshot
-- แยก `CURRENT_WEEK_TURNOVER_PROXY` (แท่งสัปดาห์ปัจจุบัน ซึ่งอาจยังไม่ปิด) กับ `AVG_TURNOVER_20D_PROXY` (Pine CSV จาก 4 สัปดาห์ที่ปิดแล้ว)
-- ไม่จัดระดับสภาพคล่องเป็น `HIGH/MEDIUM/LOW`
-- เมื่อข้อมูลหรือบริการไม่พร้อม แจ้งข้อผิดพลาดหรือ `⚫ N/A` ตามจริง
+แนวทางนี้กำหนดรูปแบบรายงานในแชตให้สม่ำเสมอ โดยยึด snapshot MPTM ที่ดาวน์โหลดสำเร็จในรอบนั้นและข้อมูล CFD ที่ workflow ดึงได้จริง ห้ามอนุมานหรือเติมค่าที่ไม่มีในข้อมูล
+
+### กลุ่มสถานะ
+
+จัดกลุ่มจากคอลัมน์ใน snapshot ตาม logic ของรายงาน:
+
+- 🟢 `BUY CONFIRMED`: `ACTION` มีคำว่า `BUY`
+- 🔵 `EXIT`: `ACTION` มีคำว่า `EXIT` หรือ `SELL`
+- 🔴 `OVEREXTENDED`: `SETUP(D)` มีคำว่า `EXTENDED` และไม่เข้าเงื่อนไข BUY/EXIT ก่อนหน้า
+- 🟡 `PRE-ENTRY — WAIT 1H`: ผ่านเงื่อนไข CANDIDATE คือ `BIAS(W)` เป็น bullish, `SETUP(D)` เป็น ready/recovery/pullback, `ENTRY_ZONE(4H)` สีเขียว และ `ENTRY_TRIGGER(1H)` สีเหลือง
+- ⚪ `WAIT/RETEST`: ไม่เข้าเงื่อนไขข้างต้น
+
+ใช้ชื่อ symbol เป็น Markdown link ไปยัง TradingView ตาม ticker ใน `TRADINGVIEW_SYMBOL`; รูปแบบลิงก์คือ `https://www.tradingview.com/chart/?symbol=<URL-encoded ticker>` เช่น [XAU](https://www.tradingview.com/chart/?symbol=OANDA%3AXAUUSD). โปรเจกต์นี้ไม่มี `GROUP` แบบหุ้นไทย จึงไม่สร้าง GROUP, Finnomena link, VOL/TREND/CMB score หรือเกณฑ์ที่ไม่มีอยู่ใน snapshot/implementation
+
+### รูปแบบ `UPDATE`
+
+เริ่มด้วยเวลาที่ดาวน์โหลด snapshot และแหล่งข้อมูล จากนั้นแสดง metadata ของแต่ละ symbol จากแถวต้นทาง:
+
+```text
+AKA         : XAU
+TRADINGVIEW : OANDA:XAUUSD
+LAST_CANDLE : <ค่าจาก snapshot>
+UPDATED     : <ค่าจาก snapshot>
+```
+
+แยกตารางตามสถานะ โดยใช้หัวคอลัมน์ชุดเดียวกันและคงลำดับนี้:
+
+`AKA | TRADINGVIEW_SYMBOL | MPTM_STATUS | ACTION | BIAS(W) | SETUP(D) | ENTRY_ZONE(4H) | ENTRY_TRIGGER(1H) | PRICE | RSI(W) | RSI(D) | RSI(1H) | MACD_HIST_DELTA(W) | CURRENT_WEEK_TURNOVER_PROXY | AVG_TURNOVER_20D_PROXY`
+
+หัวข้อแต่ละกลุ่มต้องแสดงจำนวน symbol; `WAIT/RETEST` แสดงเฉพาะหัวข้อกับจำนวน ไม่แสดงรายชื่อหรือตาราง ตัวอย่างเช่น `⚪ WAIT/RETEST — 1 สัญลักษณ์`. กลุ่มอื่นแสดงทุกรายการที่อยู่ใน snapshot โดยไม่ตัดเหลือ TOP N และไม่สลับลำดับคอลัมน์
+
+### รูปแบบ `UPDATE/<AKA>-<AKA>-...`
+
+แสดง metadata `AKA`, `TRADINGVIEW`, `LAST_CANDLE`, `UPDATED` แยกทีละ symbol ตามลำดับที่ร้องขอ แล้วแสดงหัวข้อ `🔵 SPECIFIED CFD — n สัญลักษณ์` และตาราง:
+
+`AKA | TRADINGVIEW_SYMBOL | MPTM_STATUS | ACTION | BIAS(W) | SETUP(D) | ENTRY_ZONE(4H) | ENTRY_TRIGGER(1H) | PRICE | RSI(W) | RSI(D) | RSI(1H) | MACD_HIST_DELTA(W) | CURRENT_WEEK_TURNOVER_PROXY | AVG_TURNOVER_20D_PROXY | LAST_CANDLE | UPDATED`
+
+AKA ในทุกแถวเป็นลิงก์ TradingView; คงลำดับที่ร้องขอ ไม่จัดอันดับด้วย score ที่ไม่มีในระบบ หาก AKA ไม่อยู่ใน snapshot ให้รายงานข้อผิดพลาดและไม่อ้างว่าคำสั่งสำเร็จ
+
+### รูปแบบ `CANDIDATE`
+
+ใช้หัวข้อ `ผลการค้นหา CANDIDATE (MPTM W→D→4H→1H, รอ 1H Trigger) — n รายการ` และ schema เฉพาะนี้:
+
+`# | AKA | TRADINGVIEW_SYMBOL | PRICE | MACD_HIST_DELTA(W) | BIAS(W) | SETUP(D) | ENTRY_ZONE(4H) | ENTRY_TRIGGER(1H) | LAST_CANDLE | UPDATED | CURRENT_WEEK_TURNOVER_PROXY | AVG_TURNOVER_20D_PROXY`
+
+เรียง `MACD_HIST_DELTA(W)` จากมากไปน้อย แสดงจำนวนผู้ผ่านทั้งหมดและไม่เกิน 25 แถว ตามพฤติกรรม CLI; ลำดับคอลัมน์ต้องคงเดิมและ AKA ในรายงานแชตเป็นลิงก์ TradingView
+
+### ✅ ข้อกำหนดผลลัพธ์
+
+- รายงานในแชตเป็น Markdown ที่ render ได้จริง ไม่ครอบด้วย code fence; คงข้อมูล คอลัมน์ และคำเตือนตามผลจริง
+- ใช้เฉพาะ snapshot ที่ดาวน์โหลดสำเร็จล่าสุดในรอบปัจจุบัน ไม่อ้างอิง snapshot เก่าหรือใช้ HTTP cache เป็นข้อมูลใหม่
+- แสดง timestamp `LAST_CANDLE`/`UPDATED` ตามค่าต้นทางเท่านั้น; หากว่างให้แสดง `⚫ N/A` และแจ้งเตือน ไม่คาดเดาหรือสร้าง timestamp
+- แสดง current-week turnover และ Avg Turnover 20D แยกกัน; หาก feed หรือ CSV ไม่มีข้อมูลให้แสดง `⚫ N/A` พร้อม warning และไม่ใช้ค่ารอบก่อนทดแทน
+- แจ้งข้อผิดพลาดเมื่อ snapshot ดาวน์โหลด/อ่านไม่ได้, schema ที่จำเป็นขาด, หรือ AKA ที่ระบุไม่พบ; อย่ารายงานผลสำเร็จโดยไม่มีข้อมูล
+- `UPDATE` สร้าง/อัปเดต Excel report; `CANDIDATE` แสดงผลใน Terminal และไม่เขียน workbook
 
 ## 🧩 Liquidity proxy จาก TradingView
 
