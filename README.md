@@ -39,7 +39,7 @@ TRADINGVIEW_SYMBOL_MAP=XAU=OANDA:XAUUSD
 | คำสั่ง | วิธีใช้ | ผลลัพธ์ |
 |---|---|---|
 | `START @README.md` | พิมพ์ในแชต | อ่านแนวทางและขอบเขตก่อนเริ่มงาน |
-| `UPDATE` | `./update.sh` | ดาวน์โหลด snapshot, รายงาน MPTM ทุกสัญลักษณ์ และแสดง current-week turnover กับ Avg Turnover 20D proxy |
+| `UPDATE` | `./update.sh` | ดาวน์โหลด snapshot, รายงาน MPTM ทุกสัญลักษณ์ และแสดง weekly activity กับค่าเฉลี่ย traded value 30D จาก TradingView |
 | `UPDATE/<AKA>-<AKA>-...` | `./update.sh UPDATE/XAU` | รายงานเฉพาะสัญลักษณ์ที่ระบุ เช่น `UPDATE/XAU-GOLD` |
 | `CANDIDATE` | `./candidate.sh` | คัดรายการที่ W/D/4H พร้อมแล้วและรอ 1H Trigger |
 | `REVIEW` | พิมพ์ในแชต | ทบทวนแนวทางและข้อจำกัด |
@@ -50,7 +50,7 @@ TRADINGVIEW_SYMBOL_MAP=XAU=OANDA:XAUUSD
 
 ทุกรอบจะดาวน์โหลด XLSX ใหม่จาก Google Sheets ก่อนประมวลผลและบันทึก snapshot ที่ `downloads/All-CFD-MTFS.xlsx` หากดาวน์โหลดหรืออ่านไฟล์ไม่สำเร็จ คำสั่งจะหยุด ไม่ใช้ snapshot เก่าแทน
 
-MPTM ในรายงานอ่านจาก snapshot เท่านั้น ส่วน current-week turnover ดึงจาก TradingView Scanner และ Avg Turnover 20D อ่านจาก Pine CSV ที่ export แยกไว้ หากข้อมูลไม่ครบจะแสดง `⚫ N/A` และคำเตือน ไม่มีการใช้ค่าเก่าทดแทน
+MPTM ในรายงานอ่านจาก snapshot เท่านั้น ส่วน current-week activity และ `AvgValue.Traded_30d` ดึงโดยตรงจาก TradingView CFD Scanner ไม่ต้องใช้ Pine CSV หรือ OANDA credentials
 
 ## 🧩 แนวทางการแสดงผลแบบ TFOS สำหรับ CFD Gold
 
@@ -81,7 +81,7 @@ UPDATED     : <ค่าจาก snapshot>
 
 แยกตารางตามสถานะ โดยใช้หัวคอลัมน์ชุดเดียวกันและคงลำดับนี้:
 
-`AKA | TRADINGVIEW_SYMBOL | MPTM_STATUS | ACTION | BIAS(W) | SETUP(D) | ENTRY_ZONE(4H) | ENTRY_TRIGGER(1H) | PRICE | RSI(W) | RSI(D) | RSI(1H) | MACD_HIST_DELTA(W) | CURRENT_WEEK_TURNOVER_PROXY | AVG_TURNOVER_20D_PROXY`
+`AKA | TRADINGVIEW_SYMBOL | MPTM_STATUS | ACTION | BIAS(W) | SETUP(D) | ENTRY_ZONE(4H) | ENTRY_TRIGGER(1H) | PRICE | RSI(W) | RSI(D) | RSI(1H) | MACD_HIST_DELTA(W) | CURRENT_PRICE_VOLUME_ACTIVITY_PROXY | AVG_VALUE_TRADED_30D`
 
 หัวข้อแต่ละกลุ่มต้องแสดงจำนวน symbol; `WAIT/RETEST` แสดงเฉพาะหัวข้อกับจำนวน ไม่แสดงรายชื่อหรือตาราง ตัวอย่างเช่น `⚪ WAIT/RETEST — 1 สัญลักษณ์`. กลุ่มอื่นแสดงทุกรายการที่อยู่ใน snapshot โดยไม่ตัดเหลือ TOP N และไม่สลับลำดับคอลัมน์
 
@@ -89,7 +89,7 @@ UPDATED     : <ค่าจาก snapshot>
 
 แสดง metadata `AKA`, `TRADINGVIEW`, `LAST_CANDLE`, `UPDATED` แยกทีละ symbol ตามลำดับที่ร้องขอ แล้วแสดงหัวข้อ `🔵 SPECIFIED CFD — n สัญลักษณ์` และตาราง:
 
-`AKA | TRADINGVIEW_SYMBOL | MPTM_STATUS | ACTION | BIAS(W) | SETUP(D) | ENTRY_ZONE(4H) | ENTRY_TRIGGER(1H) | PRICE | RSI(W) | RSI(D) | RSI(1H) | MACD_HIST_DELTA(W) | CURRENT_WEEK_TURNOVER_PROXY | AVG_TURNOVER_20D_PROXY | LAST_CANDLE | UPDATED`
+`AKA | TRADINGVIEW_SYMBOL | MPTM_STATUS | ACTION | BIAS(W) | SETUP(D) | ENTRY_ZONE(4H) | ENTRY_TRIGGER(1H) | PRICE | RSI(W) | RSI(D) | RSI(1H) | MACD_HIST_DELTA(W) | CURRENT_PRICE_VOLUME_ACTIVITY_PROXY | AVG_VALUE_TRADED_30D | LAST_CANDLE | UPDATED`
 
 AKA ในทุกแถวเป็นลิงก์ TradingView; คงลำดับที่ร้องขอ ไม่จัดอันดับด้วย score ที่ไม่มีในระบบ หาก AKA ไม่อยู่ใน snapshot ให้รายงานข้อผิดพลาดและไม่อ้างว่าคำสั่งสำเร็จ
 
@@ -97,7 +97,7 @@ AKA ในทุกแถวเป็นลิงก์ TradingView; คงล�
 
 ใช้หัวข้อ `ผลการค้นหา CANDIDATE (MPTM W→D→4H→1H, รอ 1H Trigger) — n รายการ` และ schema เฉพาะนี้:
 
-`# | AKA | TRADINGVIEW_SYMBOL | PRICE | MACD_HIST_DELTA(W) | BIAS(W) | SETUP(D) | ENTRY_ZONE(4H) | ENTRY_TRIGGER(1H) | LAST_CANDLE | UPDATED | CURRENT_WEEK_TURNOVER_PROXY | AVG_TURNOVER_20D_PROXY`
+`# | AKA | TRADINGVIEW_SYMBOL | PRICE | MACD_HIST_DELTA(W) | BIAS(W) | SETUP(D) | ENTRY_ZONE(4H) | ENTRY_TRIGGER(1H) | LAST_CANDLE | UPDATED | CURRENT_PRICE_VOLUME_ACTIVITY_PROXY | AVG_VALUE_TRADED_30D`
 
 เรียง `MACD_HIST_DELTA(W)` จากมากไปน้อย แสดงจำนวนผู้ผ่านทั้งหมดและไม่เกิน 25 แถว ตามพฤติกรรม CLI; ลำดับคอลัมน์ต้องคงเดิมและ AKA ในรายงานแชตเป็นลิงก์ TradingView
 
@@ -106,29 +106,23 @@ AKA ในทุกแถวเป็นลิงก์ TradingView; คงล�
 - รายงานในแชตเป็น Markdown ที่ render ได้จริง ไม่ครอบด้วย code fence; คงข้อมูล คอลัมน์ และคำเตือนตามผลจริง
 - ใช้เฉพาะ snapshot ที่ดาวน์โหลดสำเร็จล่าสุดในรอบปัจจุบัน ไม่อ้างอิง snapshot เก่าหรือใช้ HTTP cache เป็นข้อมูลใหม่
 - แสดง timestamp `LAST_CANDLE`/`UPDATED` ตามค่าต้นทางเท่านั้น; หากว่างให้แสดง `⚫ N/A` และแจ้งเตือน ไม่คาดเดาหรือสร้าง timestamp
-- แสดง current-week turnover และ Avg Turnover 20D แยกกัน; หาก feed หรือ CSV ไม่มีข้อมูลให้แสดง `⚫ N/A` พร้อม warning และไม่ใช้ค่ารอบก่อนทดแทน
+- แสดง current-week activity กับ `AvgValue.Traded_30d` แยกคอลัมน์; ค่า 30D อ่านตรงจาก TradingView Scanner ไม่คำนวณจากแท่งเดือน
+- หาก TradingView Scanner ไม่มีข้อมูลให้แสดง `⚫ N/A` พร้อม warning และไม่ใช้ค่ารอบก่อนทดแทน
 - แจ้งข้อผิดพลาดเมื่อ snapshot ดาวน์โหลด/อ่านไม่ได้, schema ที่จำเป็นขาด, หรือ AKA ที่ระบุไม่พบ; อย่ารายงานผลสำเร็จโดยไม่มีข้อมูล
 - `UPDATE` สร้าง/อัปเดต Excel report; `CANDIDATE` แสดงผลใน Terminal และไม่เขียน workbook
 
-## 🧩 Liquidity proxy จาก TradingView
+## 🧩 Price-volume activity proxy
 
-รายงานแยกตัวเลขสองแบบ ไม่ใช้แทนกัน:
+รายงานแยกค่า activity ของสัปดาห์ปัจจุบันและค่าเฉลี่ย traded value 30D:
 
 ```text
-Current week turnover proxy = current 1W close × current 1W volume
-Avg Turnover 20D proxy = sum(close × volume, 4 completed 1W bars) / 20
+Current week activity proxy = current 1W close × current 1W volume
+30D average traded value = TradingView AvgValue.Traded_30d
 ```
 
-ค่า current-week turnover ดึงจาก TradingView CFD Scanner ตาม `TRADINGVIEW_SYMBOL_MAP` และเป็นข้อมูลสัปดาห์ปัจจุบันที่อาจยังไม่ปิด ส่วน Avg Turnover 20D ใช้สูตรประมาณการตามแนวทาง [TFOSvS](https://github.com/TimeFrameLab/TFOSvS) ผ่าน Pine CSV เนื่องจาก Scanner ไม่ได้ส่งประวัติ weekly ย้อนหลังครบสี่แท่ง
+ทั้งสองค่าดึงจาก TradingView CFD Scanner ตาม `TRADINGVIEW_SYMBOL_MAP`; weekly activity คำนวณจากแท่งสัปดาห์ปัจจุบัน ส่วนค่า `AvgValue.Traded_30d` รายงานตรงจากฟิลด์ของ TradingView โดยไม่คำนวณ `close × volume` เองหรือหารด้วย 20. ระบบไม่ใช้ Pine CSV หรือ OANDA API.
 
-### เตรียม Pine CSV สำหรับ Avg Turnover 20D
-
-1. เปิด TradingView chart ของ symbol ที่ตรงกับ `TRADINGVIEW_SYMBOL_MAP` และเลือก timeframe `1W`.
-2. เพิ่ม [tradingview-cfd-gold-liquidity.pine](./tradingview-cfd-gold-liquidity.pine) ลงใน Pine Editor แล้วเพิ่ม indicator ลงบน chart.
-3. ใช้ **Export chart data** และบันทึก CSV เป็น `downloads/tradingview-liquidity/<AKA>.csv` เช่น `downloads/tradingview-liquidity/XAU.csv`. สร้างโฟลเดอร์ปลายทางก่อน หากยังไม่มี.
-4. เก็บคอลัมน์ `TFOS_AVG_TURNOVER_20D_USD_DAY` ไว้ใน CSV; workflow จะอ่านค่าล่าสุดที่ใช้ได้จากคอลัมน์นี้.
-
-ต้อง export CSV ใหม่ตามรอบที่ต้องการวิเคราะห์ เพราะ CLI ไม่ตรวจความสดของ Pine CSV และไม่ยืนยันว่า export มาจากแท่งล่าสุด ค่าทั้งสองเป็น provider-specific proxy ไม่ใช่มูลค่าซื้อขายทั้งตลาด, bid/ask depth หรือสภาพคล่องที่รับประกัน และอาจต่างจาก CFD broker ที่ใช้งาน หากไม่มี CSV หรือข้อมูลไม่ครบจะแสดง `⚫ N/A` พร้อม warning โดยไม่ใช้ค่าเก่าแทน ไฟล์ใน `downloads/` ไม่ถูกติดตามโดย Git
+**ข้อจำกัดของ metric:** `AvgValue.Traded_30d` เป็นค่าตามนิยาม/ข้อมูลของ TradingView สำหรับ CFD นั้น ๆ; ไม่รับรองว่าเท่ากับมูลค่าซื้อขายที่โบรกเกอร์รายใดรายหนึ่งรายงานหรือเป็น market-wide turnover และไม่ใช่ bid/ask depth. ห้ามนำ volume proxy ไปจัดระดับ `HIGH/MEDIUM/LOW` โดยไม่มีเกณฑ์ยืนยัน.
 
 Scanner ใช้ ticker เช่น `OANDA:XAUUSD` ผ่าน CFD endpoint โดยไม่ใช้ session cookie หรือ credential; endpoint นี้ไม่ได้ประกาศเป็น public API อย่างเป็นทางการและอาจเปลี่ยนแปลงหรือหยุดให้บริการ
 

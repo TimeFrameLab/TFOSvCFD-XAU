@@ -6,7 +6,6 @@ PYTHON_BIN="$ROOT/.venv/bin/python"
 [[ -x "$PYTHON_BIN" ]] || PYTHON_BIN=python3
 
 exec "$PYTHON_BIN" - "$@" <<'PY'
-import csv
 import io
 import json
 import math
@@ -28,14 +27,57 @@ SHEET_DEFAULT = "All-CFD-MTFS"
 SNAPSHOT_PATH = os.path.join(ROOT, "downloads", "All-CFD-MTFS.xlsx")
 REPORT_PATH = os.path.join(ROOT, "downloads", "All-CFD-MTFS_output.xlsx")
 SCANNER_URL = "https://scanner.tradingview.com/cfd/scan"
-LIQUIDITY_CSV_DIR = os.path.join(ROOT, "downloads", "tradingview-liquidity")
-LIQUIDITY_CSV_COLUMN = "TFOS_AVG_TURNOVER_20D_USD_DAY"
 TIMEOUT_SECONDS = 20
 RETRY_COUNT = 3
 BATCH_SIZE = 10
 TIMEZONE_BANGKOK = ZoneInfo("Asia/Bangkok")
-SCANNER_COLUMNS = ["close|1W", "volume|1W"]
+SCANNER_COLUMNS = ["close|1W", "volume|1W", "AvgValue.Traded_30d"]
 REPORT_HEADERS = [
+    "SNAPSHOT_FETCHED_AT",
+    "AKA",
+    "TRADINGVIEW_SYMBOL",
+    "MPTM_STATUS",
+    "ACTION",
+    "BIAS(W)",
+    "SETUP(D)",
+    "ENTRY_ZONE(4H)",
+    "ENTRY_TRIGGER(1H)",
+    "PRICE",
+    "RSI(W)",
+    "RSI(D)",
+    "RSI(1H)",
+    "MACD_HIST_DELTA(W)",
+    "LAST_CANDLE",
+    "UPDATED",
+    "CURRENT_PRICE_VOLUME_ACTIVITY_PROXY",
+    "AVG_VALUE_TRADED_30D",
+]
+PREVIOUS_REPORT_HEADERS = [
+    "SNAPSHOT_FETCHED_AT",
+    "AKA",
+    "TRADINGVIEW_SYMBOL",
+    "MPTM_STATUS",
+    "ACTION",
+    "BIAS(W)",
+    "SETUP(D)",
+    "ENTRY_ZONE(4H)",
+    "ENTRY_TRIGGER(1H)",
+    "PRICE",
+    "RSI(W)",
+    "RSI(D)",
+    "RSI(1H)",
+    "MACD_HIST_DELTA(W)",
+    "LAST_CANDLE",
+    "UPDATED",
+    "CURRENT_PRICE_VOLUME_ACTIVITY_PROXY",
+    "AVG_PRICE_VOLUME_ACTIVITY_4W_PROXY",
+    "CURRENT_MONTH_ACTIVITY_PER_DAY_PROXY",
+]
+MONTHLY_PROXY_REPORT_HEADERS = PREVIOUS_REPORT_HEADERS[:17] + [
+    "CURRENT_MONTH_ACTIVITY_PER_DAY_PROXY",
+]
+OLDER_REPORT_HEADERS = PREVIOUS_REPORT_HEADERS[:-1]
+LEGACY_REPORT_HEADERS = [
     "SNAPSHOT_FETCHED_AT",
     "AKA",
     "TRADINGVIEW_SYMBOL",
@@ -312,7 +354,7 @@ def scanner_request(session, tickers):
     return [], last_error or "ไม่ทราบสาเหตุ"
 
 
-def current_week_turnover(items_by_ticker, ticker):
+def current_week_activity(items_by_ticker, ticker):
     item = items_by_ticker.get(ticker)
     if item is None:
         return None
@@ -326,38 +368,22 @@ def current_week_turnover(items_by_ticker, ticker):
     return close * volume
 
 
-def avg_turnover_from_csv(aka):
-    if not re.fullmatch(r"[A-Za-z0-9._-]+", aka):
-        return None, f"{aka}: AKA ใช้เป็นชื่อไฟล์ CSV ไม่ได้"
-    path = os.path.join(LIQUIDITY_CSV_DIR, aka + ".csv")
-    if not os.path.isfile(path):
-        return None, f"{aka}: ไม่พบไฟล์ Pine CSV ({path})"
-    try:
-        with open(path, newline="", encoding="utf-8-sig") as source:
-            reader = csv.DictReader(source)
-            headers = [str(name or "").strip() for name in (reader.fieldnames or [])]
-            if LIQUIDITY_CSV_COLUMN not in headers:
-                return None, (
-                    f"{aka}: Pine CSV ไม่มีคอลัมน์ {LIQUIDITY_CSV_COLUMN}"
-                )
-            value = None
-            for row in reader:
-                normalized_row = {
-                    str(name or "").strip(): item for name, item in row.items()
-                }
-                candidate = finite_number(normalized_row.get(LIQUIDITY_CSV_COLUMN))
-                if candidate is not None and candidate > 0:
-                    value = candidate
-            if value is None:
-                return None, f"{aka}: ไม่มีค่า Avg Turnover 20D ที่ใช้ได้ใน Pine CSV"
-            return value, None
-    except (OSError, UnicodeError, csv.Error) as exc:
-        return None, f"{aka}: อ่าน Pine CSV ไม่สำเร็จ ({type(exc).__name__})"
+def average_value_traded_30d(items_by_ticker, ticker):
+    item = items_by_ticker.get(ticker)
+    if item is None:
+        return None
+    values = item.get("d")
+    if not isinstance(values, list) or len(values) != len(SCANNER_COLUMNS):
+        return None
+    average_value = finite_number(values[2])
+    if average_value is None or average_value < 0:
+        return None
+    return average_value
 
 
 def fetch_liquidity(tickers_by_aka):
     current_values = {}
-    avg_values = {}
+    average_value_traded_values = {}
     warnings = []
     session = requests.Session()
     session.headers.update({
@@ -369,9 +395,6 @@ def fetch_liquidity(tickers_by_aka):
     })
     mapped = {}
     for aka, ticker in tickers_by_aka.items():
-        avg_values[aka], csv_warning = avg_turnover_from_csv(aka)
-        if csv_warning:
-            warnings.append(csv_warning)
         if ticker:
             mapped[ticker] = aka
         else:
@@ -383,12 +406,13 @@ def fetch_liquidity(tickers_by_aka):
         items, failure = scanner_request(session, batch)
         if failure:
             warnings.append(
-                "TradingView Scanner: ดึง current weekly turnover ไม่สำเร็จ ("
+                "TradingView Scanner: ดึง activity/AvgValue.Traded_30d ไม่สำเร็จ ("
                 + failure
                 + ")"
             )
             for ticker in batch:
                 current_values[mapped[ticker]] = None
+                average_value_traded_values[mapped[ticker]] = None
             continue
         results = {}
         for item in items:
@@ -396,14 +420,24 @@ def fetch_liquidity(tickers_by_aka):
                 results[item["s"]] = item
         for ticker in batch:
             aka = mapped[ticker]
-            estimate = current_week_turnover(results, ticker)
+            estimate = current_week_activity(results, ticker)
             current_values[aka] = estimate
+            average_value = average_value_traded_30d(results, ticker)
+            average_value_traded_values[aka] = average_value
             if estimate is None:
                 warnings.append(
                     f"{aka}: TradingView ไม่มี close/volume ของสัปดาห์ปัจจุบันที่ใช้ได้"
                 )
+            if average_value is None:
+                warnings.append(
+                    f"{aka}: TradingView ไม่มีค่า AvgValue.Traded_30d ที่ใช้ได้"
+                )
     session.close()
-    return current_values, avg_values, warnings
+    return (
+        current_values,
+        average_value_traded_values,
+        warnings,
+    )
 
 
 def format_value(value):
@@ -422,7 +456,14 @@ def format_proxy(value, unit):
     return f"≈ {value:,.2f} {unit}"
 
 
-def report_row(record, indexes, ticker, current_turnover, avg_proxy, fetched_at):
+def report_row(
+    record,
+    indexes,
+    ticker,
+    current_activity,
+    average_value_traded,
+    fetched_at,
+):
     return {
         "SNAPSHOT_FETCHED_AT": fetched_at,
         "AKA": record["aka"],
@@ -442,10 +483,14 @@ def report_row(record, indexes, ticker, current_turnover, avg_proxy, fetched_at)
         ),
         "LAST_CANDLE": format_value(get_value(record, indexes, "LAST_CANDLE")),
         "UPDATED": format_value(get_value(record, indexes, "UPDATED")),
-        "CURRENT_WEEK_TURNOVER_PROXY": format_proxy(
-            current_turnover, "USD/week (current, incomplete)"
+        "CURRENT_PRICE_VOLUME_ACTIVITY_PROXY": format_proxy(
+            current_activity, "USD·price-updates/week (current, incomplete)"
         ),
-        "AVG_TURNOVER_20D_PROXY": format_proxy(avg_proxy, "USD/day"),
+        "AVG_VALUE_TRADED_30D": (
+            "⚫ N/A"
+            if average_value_traded is None
+            else f"{average_value_traded:,.2f} (TradingView AvgValue.Traded_30d)"
+        ),
     }
 
 
@@ -460,17 +505,52 @@ def write_report(rows, source_url):
     master = workbook.create_sheet("Master Signal Log")
     master.append(REPORT_HEADERS)
     existing_log_path = REPORT_PATH
+    archived_logs = {}
     if os.path.isfile(existing_log_path):
         try:
             old_book = load_workbook(existing_log_path, read_only=True, data_only=True)
+            for sheet_name in old_book.sheetnames:
+                if sheet_name.startswith("Master Signal Log (legacy") or sheet_name in (
+                    "Legacy 20D",
+                    "Legacy 4W",
+                    "Legacy 4W (pre-monthly)",
+                    "Legacy monthly proxy",
+                ):
+                    archive_name = {
+                        "Master Signal Log (legacy 20D)": "Legacy 20D",
+                        "Master Signal Log (legacy 4W)": "Legacy 4W",
+                    }.get(sheet_name, sheet_name)
+                    archived_logs[archive_name] = list(
+                        old_book[sheet_name].iter_rows(values_only=True)
+                    )
             if "Master Signal Log" in old_book.sheetnames:
                 old_log = old_book["Master Signal Log"]
                 old_headers = [cell.value for cell in old_log[1]]
-                if old_headers != REPORT_HEADERS:
+                if old_headers == REPORT_HEADERS:
+                    for old_row in old_log.iter_rows(min_row=2, values_only=True):
+                        master.append(list(old_row))
+                elif old_headers in (
+                    PREVIOUS_REPORT_HEADERS,
+                    MONTHLY_PROXY_REPORT_HEADERS,
+                    OLDER_REPORT_HEADERS,
+                    LEGACY_REPORT_HEADERS,
+                ):
+                    if old_headers == LEGACY_REPORT_HEADERS:
+                        archive_name = "Legacy 20D"
+                    elif old_headers == PREVIOUS_REPORT_HEADERS:
+                        archive_name = "Legacy 4W"
+                    elif old_headers == MONTHLY_PROXY_REPORT_HEADERS:
+                        archive_name = "Legacy monthly proxy"
+                    else:
+                        archive_name = "Legacy 4W (pre-monthly)"
+                    old_rows = list(old_log.iter_rows(values_only=True))
+                    if archive_name in archived_logs:
+                        archived_logs[archive_name].extend(old_rows[1:])
+                    else:
+                        archived_logs[archive_name] = old_rows
+                else:
                     old_book.close()
                     error("schema ของ Master Signal Log ไม่ตรง; หยุดเพื่อรักษาประวัติเดิม")
-                for old_row in old_log.iter_rows(min_row=2, values_only=True):
-                    master.append(list(old_row))
             old_book.close()
         except (BadZipFile, OSError, ValueError, KeyError) as exc:
             error(f"อ่านรายงานเดิมไม่สำเร็จ ({type(exc).__name__})")
@@ -482,16 +562,12 @@ def write_report(rows, source_url):
     reference.append(["Google Sheets snapshot", source_url])
     reference.append(["TradingView CFD Scanner", SCANNER_URL])
     reference.append([
-        "Current week turnover proxy",
-        "TradingView current 1W close × volume; partial week, estimate only",
+        "Current week price-volume activity proxy",
+        "TradingView current 1W close × volume; partial week; volume is provider-specific",
     ])
     reference.append([
-        "Avg Turnover 20D proxy",
-        "Pine CSV value from four completed 1W close × volume bars / 20",
-    ])
-    reference.append([
-        "Avg Turnover 20D Pine CSV",
-        os.path.relpath(LIQUIDITY_CSV_DIR, ROOT) + " (freshness not validated)",
+        "Average value traded 30D",
+        "TradingView AvgValue.Traded_30d field, reported directly without local calculation",
     ])
     for worksheet in (latest, master, reference):
         worksheet.freeze_panes = "A2"
@@ -502,6 +578,12 @@ def write_report(rows, source_url):
                 max(14, max(len(str(item.value or "")) for item in column[:40]) + 2),
             )
             worksheet.column_dimensions[column[0].column_letter].width = width
+    for archive_name, archive_rows in archived_logs.items():
+        legacy = workbook.create_sheet(archive_name)
+        for old_row in archive_rows:
+            legacy.append(list(old_row))
+        legacy.freeze_panes = "A2"
+        legacy.auto_filter.ref = legacy.dimensions
     os.makedirs(os.path.dirname(REPORT_PATH), exist_ok=True)
     descriptor, temporary_path = tempfile.mkstemp(
         prefix=".All-CFD-MTFS-output-", suffix=".xlsx", dir=os.path.dirname(REPORT_PATH)
@@ -517,6 +599,7 @@ def write_report(rows, source_url):
             pass
         error(f"บันทึกรายงาน Excel ไม่สำเร็จ ({type(exc).__name__})")
     workbook.close()
+    return bool(archived_logs)
 
 
 def print_table(rows, columns):
@@ -551,26 +634,30 @@ def main():
     tickers_by_aka = {
         record["aka"]: symbols.get(record["aka"]) for record in records
     }
-    current_turnover, avg_turnover, warnings = fetch_liquidity(tickers_by_aka)
+    (
+        current_activity,
+        average_value_traded,
+        warnings,
+    ) = fetch_liquidity(tickers_by_aka)
     result_rows = [
         report_row(
             record,
             indexes,
             tickers_by_aka[record["aka"]],
-            current_turnover.get(record["aka"]),
-            avg_turnover.get(record["aka"]),
+            current_activity.get(record["aka"]),
+            average_value_traded.get(record["aka"]),
             fetched_at,
         )
         for record in records
     ]
+    if mode == "CANDIDATE":
+        for index, row in enumerate(result_rows, 1):
+            row["#"] = index
 
     print(f"ข้อมูล snapshot ดึงเมื่อ: {fetched_at}")
     print(f"แหล่งข้อมูล MPTM: Google Sheets / {sheet_name}")
-    print("Current weekly turnover: TradingView CFD Scanner — symbol ตาม mapping")
-    print(
-        "Avg Turnover 20D: TradingView Pine CSV — downloads/tradingview-liquidity/<AKA>.csv"
-    )
-
+    print("Current weekly price-volume activity: TradingView CFD Scanner")
+    print("Average value traded 30D: TradingView AvgValue.Traded_30d field")
     if mode == "CANDIDATE":
         print(
             f"\nผลการคัดกรอง CANDIDATE (MPTM W→D→4H→1H, รอ 1H Trigger) "
@@ -581,6 +668,7 @@ def main():
             "+ ENTRY_ZONE(4H) ยืนยัน + ENTRY_TRIGGER(1H) ยังรอ"
         )
         columns = [
+            "#",
             "AKA",
             "TRADINGVIEW_SYMBOL",
             "PRICE",
@@ -591,8 +679,8 @@ def main():
             "ENTRY_TRIGGER(1H)",
             "LAST_CANDLE",
             "UPDATED",
-            "CURRENT_WEEK_TURNOVER_PROXY",
-            "AVG_TURNOVER_20D_PROXY",
+            "CURRENT_PRICE_VOLUME_ACTIVITY_PROXY",
+            "AVG_VALUE_TRADED_30D",
         ]
         print_table(result_rows[:25], columns)
     else:
@@ -612,22 +700,23 @@ def main():
             "RSI(D)",
             "RSI(1H)",
             "MACD_HIST_DELTA(W)",
-            "CURRENT_WEEK_TURNOVER_PROXY",
-            "AVG_TURNOVER_20D_PROXY",
+            "CURRENT_PRICE_VOLUME_ACTIVITY_PROXY",
+            "AVG_VALUE_TRADED_30D",
             "LAST_CANDLE",
             "UPDATED",
         ]
         print_table(result_rows, columns)
-        write_report(result_rows, config["SET_DATA_URL"])
+        migrated_legacy = write_report(result_rows, config["SET_DATA_URL"])
         print(f"\n✅ Excel report: {REPORT_PATH}")
+        if migrated_legacy:
+            warnings.append("เก็บประวัติ schema เดิมไว้ในชีต Master Signal Log (legacy)")
 
     for warning in dict.fromkeys(warnings):
         print("⚠️ " + warning)
     print(
-        "⚠️ Current week turnover เป็น close × volume ของแท่ง 1W ปัจจุบัน "
-        "ซึ่งอาจยังไม่ปิด; Avg Turnover 20D เป็นค่าใน Pine CSV จาก 4 แท่ง 1W "
-        "ที่ปิดแล้ว ÷ 20; ทั้งคู่เป็น proxy ไม่ใช่ market-wide turnover, "
-        "bid/ask depth หรือสภาพคล่องรับประกัน"
+        "⚠️ ค่า AvgValue.Traded_30d รายงานตรงจาก TradingView; นิยามและ volume "
+        "ขึ้นกับผู้ให้บริการ CFD ไม่จำเป็นต้องตรงกับ broker หรือทั้งตลาด "
+        "และไม่ใช่ bid/ask depth"
     )
     print(
         "⚠️ TradingView Scanner เป็น endpoint ที่ไม่ได้ประกาศเป็น public API "

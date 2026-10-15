@@ -8,36 +8,24 @@ run, validates its structure, and never substitutes an older snapshot when a
 download fails. The CLI does not call or refresh the Apps Script itself; check
 `LAST_CANDLE` and `UPDATED` in the report to assess the signal timestamps.
 
-For Liquidity, the CLI separately queries TradingView's CFD Scanner using the
-configured TradingView symbol for current-week turnover, and reads Avg Turnover
-20D from a TradingView Pine CSV export. The scanner's historical weekly offsets
-are not reliable for retrieving all four bars, so the workflow does not derive
-the 20-day proxy from scanner history.
+For price-volume activity, the CLI separately queries TradingView's CFD Scanner
+using the configured TradingView symbol for current weekly activity and its
+30D average traded-value field.
 
-Current-week turnover proxy:
+Current-week activity proxy:
 
 `current 1W close × current 1W volume`
 
-Avg Turnover 20D proxy:
+Average traded value (30D):
 
-`sum(weekly close × weekly volume for 4 completed bars) / 20`
+`AvgValue.Traded_30d` (read directly from TradingView CFD Scanner)
 
-The 20-day formula follows the estimate convention used by
-[TFOSvS](https://github.com/TimeFrameLab/TFOSvS). To produce the CSV, open the
-mapped TradingView symbol on a 1W chart, add
-[tradingview-cfd-gold-liquidity.pine](./tradingview-cfd-gold-liquidity.pine),
-export chart data, and save it as
-`downloads/tradingview-liquidity/<AKA>.csv` (for example,
-`downloads/tradingview-liquidity/XAU.csv`). Keep the
-`TFOS_AVG_TURNOVER_20D_USD_DAY` column. If the file or value is missing, the
-report shows `⚫ N/A` and a warning rather than reusing old data.
-
-Refresh the Pine CSV for the analysis run you want; the CLI does not validate
-the export's timestamp or confirm that it includes the latest weekly bar.
-
-Both are provider-specific proxies, not market-wide turnover, order-book
-depth, or guaranteed liquidity measures. The current weekly bar may be
-incomplete; TradingView/OANDA volume may differ from another CFD provider.
+The 30D traded-value field is read directly from TradingView; the workflow
+does not reconstruct it from monthly candles or divide it by 20. Its
+definition and source data are provider-specific and are not guaranteed to
+match a broker's traded value or represent market-wide turnover. The current
+weekly candle may be incomplete. The workflow does not use Pine CSV or OANDA
+credentials.
 
 ## Configure
 
@@ -77,12 +65,14 @@ cp .env.example .env
 
 The source snapshot is stored at `downloads/All-CFD-MTFS.xlsx` and the UPDATE
 report at `downloads/All-CFD-MTFS_output.xlsx`; both are ignored by Git.
-Pine exports belong in `downloads/tradingview-liquidity/` and are also ignored.
 The report workbook contains `Latest Snapshot`, append-only `Master Signal
-Log`, and `REF.` sheets, including separate current-week and Avg Turnover 20D
-proxy columns. Candidate reports are printed to the terminal.
+Log`, and `REF.` sheets, including separate current-week activity and average
+traded-value 30D columns. Existing 4W/20D log history is preserved in legacy
+sheets when the previous report workbook is available at migration; values
+are not converted to the new TradingView 30D field. Candidate reports are
+printed to the terminal.
 
 TradingView Scanner is accessed without copied browser cookies or account
 credentials. Its scanner endpoint is not a published public API and may change
-or become unavailable. A failed request or invalid CSV is reported; no old
-Liquidity value is used as a fallback.
+or become unavailable. A failed request is reported; no old Liquidity value
+is used as a fallback.
